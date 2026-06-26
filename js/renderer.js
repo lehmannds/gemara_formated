@@ -111,11 +111,19 @@ export function prepareLines(nodes, options = {}) {
   // or groupNeedsOwnLine). A subsequent explicit break node is absorbed to
   // avoid a double blank line; otherwise the break is honoured.
   let startedByImplicitBreak = false;
-  // Page marker: when a page tag (wordCount 0) is encountered, store the value
-  // so the next flushed line carries it for gutter rendering.
+  // Page tracking: `currentPage` holds the active page value for the gutter.
+  // `pendingPage` is set when a page tag is encountered; on the next flush it
+  // becomes the new currentPage. `pageStart` marks the first line of a page.
+  let currentPage = null;
   let pendingPage = null;
 
   function flushLine() {
+    let isPageStart = false;
+    if (pendingPage !== null) {
+      currentPage = pendingPage;
+      pendingPage = null;
+      isPageStart = true;
+    }
     const line = {
       nodes: currentLineNodes,
       indentLevel: indentLevel + groupDepth,
@@ -123,9 +131,9 @@ export function prepareLines(nodes, options = {}) {
       wordCount: currentLineNodes.filter(n => n.type === 'text').length,
       activeTags: activeTags.map(t => ({ ...t })),
     };
-    if (pendingPage !== null) {
-      line.page = pendingPage;
-      pendingPage = null;
+    if (currentPage !== null) {
+      line.page = currentPage;
+      if (isPageStart) line.pageStart = true;
     }
     lines.push(line);
     currentLineNodes = [];
@@ -354,10 +362,13 @@ export function renderLines(lines, startLine, endLine, container, options = {}) 
     lineEl.style.marginInlineStart = `${line.indentLevel * 2}em`;
     lineEl.dataset.lineIndex = String(li);
 
-    if (line.page) {
+    {
       const gutter = document.createElement('span');
       gutter.className = 'gmr-page-gutter';
-      gutter.textContent = line.page;
+      if (line.pageStart) {
+        gutter.textContent = line.page;
+        gutter.classList.add('gmr-page-gutter-label');
+      }
       lineEl.appendChild(gutter);
     }
 

@@ -64,15 +64,19 @@ function pageToHebrew(pageStr) {
 
 // ─── Word extraction ─────────────────────────────────────────
 
+const NOISE_TOKENS = new Set([')}}', "'", '"', '(', ')']);
+
 function extractWordsFromPageFile(text) {
   return text.split(/\s+/)
-    .filter(w => w.length > 0 && w !== ')}}');
+    .filter(w => w.length > 0 && !NOISE_TOKENS.has(w));
 }
 
 function extractWordsFromPerek(markup) {
-  const TAG_RE = /\[([^\]]+)\]/g;
+  // Only strip actual editor tags (those ending with {N}), not literal brackets in text
+  const TAG_RE = /\[[^\]]*\{\d+\}\]/g;
   const cleaned = markup.replace(TAG_RE, ' ').replace(/>>/g, ' ').replace(/<</g, ' ');
-  return cleaned.split(/\s+/).filter(w => w.length > 0);
+  return cleaned.split(/\s+/)
+    .filter(w => w.length > 0 && !NOISE_TOKENS.has(w));
 }
 
 // ─── Page iteration ──────────────────────────────────────────
@@ -245,15 +249,24 @@ for (let pi = 0; pi < perakim.length; pi++) {
       pageWords = pageWords.slice(offsetWords);
     }
 
-    // Skip perek header in page files (e.g. "פרק שני - השוחט")
+    // Skip perek header in page files (e.g. "פרק שני - השוחט").
+    // Try increasing skip offsets after `-` to handle variable-length titles.
     if (i === 0 && pageWords.length > 0 && pageWords[0] === 'פרק') {
-      let skip = 0;
-      for (let j = 0; j < Math.min(10, pageWords.length); j++) {
-        skip = j + 1;
-        if (pageWords[j] === '-') break;
-      }
-      if (skip > 0 && skip < pageWords.length) {
-        pageWords = pageWords.slice(skip);
+      let dashIdx = pageWords.indexOf('-');
+      if (dashIdx < 0) dashIdx = pageWords.indexOf('–');
+      if (dashIdx >= 0) {
+        // Try skipping 0, 1, 2, 3 extra words after the dash
+        let bestSkip = dashIdx + 1;
+        for (let extra = 0; extra <= 3; extra++) {
+          const trySkip = dashIdx + 1 + extra;
+          if (trySkip >= pageWords.length) break;
+          const tryWords = pageWords.slice(trySkip);
+          if (findPageStart(perekWords, tryWords, 0) >= 0) {
+            bestSkip = trySkip;
+            break;
+          }
+        }
+        pageWords = pageWords.slice(bestSkip);
       }
     }
 
@@ -274,7 +287,7 @@ for (let pi = 0; pi < perakim.length; pi++) {
         insertions.push({ wordIndex: shortMatch, value: page.hebrew });
         searchFrom = shortMatch + 1;
       } else {
-        console.log(`    Perek ${perek.perek}: could not find page ${page.page} (${page.hebrew}), words: ${pageWords.slice(0, 6).join(' ')}`);
+        console.log(`    Perek ${perek.perek}: could not find page ${page.page} (${page.hebrew}), words: ${pageWords.slice(0, 8).join(' ')}`);
       }
     }
   }

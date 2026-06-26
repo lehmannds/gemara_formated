@@ -73,6 +73,7 @@
   text-align: justify;
   text-align-last: start;
   position: relative;
+  padding-inline-end: 4.5em;
 }
 
 /* Mid-split lines (auto-wrapped by width, not by an explicit break) should
@@ -319,22 +320,23 @@
   outline-offset: 1px;
 }
 
-/* Page gutter marker */
+/* Page gutter — fixed column on the end (left in RTL) side of each line */
 .gmr-page-gutter {
   position: absolute;
-  inset-inline-start: calc(100% + 0.5em);
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.7em;
+  inset-inline-end: 0;
+  top: 0;
+  bottom: 0;
+  width: 4em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6em;
   color: #1565c0;
-  background: #e3f2fd;
-  border: 1px solid #90caf9;
-  border-radius: 3px;
-  padding: 0.05em 0.4em;
   white-space: nowrap;
   pointer-events: none;
-  line-height: 1.4;
-  z-index: 1;
+  user-select: none;
+  border-inline-start: 2px solid #e0e0e0;
+  background: #f5f8ff;
 }
 
 .gmr-word-hidden {
