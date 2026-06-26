@@ -16,6 +16,7 @@
   <div class="editor-page">
     <div class="perek-selector" id="perek-selector">
       <label>Perek: <input type="text" id="perek-input" placeholder="Search by name or number…" autocomplete="off"></label>
+      <label>Page: <input type="text" id="page-input" placeholder="קיא א or 111:1" autocomplete="off"></label>
     </div>
 
     <div class="editor-toolbar">
@@ -52,6 +53,7 @@
     import { getPerekFromUrl, setPerekInUrl, onUrlChange } from './js/url.js';
 
     const perekInput = document.getElementById('perek-input');
+    const pageInput = document.getElementById('page-input');
     const container = document.getElementById('editor-container');
     const status = document.getElementById('status');
 
@@ -59,6 +61,84 @@
     let currentId = null;
     let perekItems = [];
     const contextMenu = createContextMenu(document.body);
+
+    // ─── Gimatria conversion for page search ─────────────────────
+
+    const GVAL = {
+      'א':1,'ב':2,'ג':3,'ד':4,'ה':5,'ו':6,'ז':7,'ח':8,'ט':9,
+      'י':10,'כ':20,'ל':30,'מ':40,'נ':50,'ס':60,'ע':70,'פ':80,'צ':90,
+      'ק':100,'ר':200,'ש':300,'ת':400,
+    };
+    const ONES  = ['','א','ב','ג','ד','ה','ו','ז','ח','ט'];
+    const TENS  = ['','י','כ','ל','מ','נ','ס','ע','פ','צ'];
+    const HUNDS = ['','ק','ר','ש','ת'];
+
+    function gimatriaToNum(s) {
+      let n = 0;
+      for (const ch of s) { n += (GVAL[ch] || 0); }
+      return n;
+    }
+
+    function numToGimatria(n) {
+      if (n === 15) return 'טו';
+      if (n === 16) return 'טז';
+      let r = '';
+      if (n >= 100) { r += HUNDS[Math.floor(n / 100)]; n %= 100; }
+      if (n >= 10)  { r += TENS[Math.floor(n / 10)];  n %= 10; }
+      if (n >= 1)   { r += ONES[n]; }
+      return r;
+    }
+
+    function parsePageQuery(query) {
+      query = query.trim();
+      if (!query) return null;
+      // Numeric: "111:1", "111.1", "111 1"
+      const numMatch = query.match(/^(\d+)\s*[:.\s]\s*([12])$/);
+      if (numMatch) {
+        const daf = parseInt(numMatch[1], 10);
+        const amud = numMatch[2] === '1' ? 'א' : 'ב';
+        return `${numToGimatria(daf)} ${amud}`;
+      }
+      // Just a number (partial)
+      if (/^\d+$/.test(query)) {
+        return numToGimatria(parseInt(query, 10));
+      }
+      // Hebrew: return as-is for fuzzy matching
+      return query;
+    }
+
+    function pageFilter(query, item) {
+      const q = query.trim();
+      if (!q) return true;
+      // Direct Hebrew match
+      if (item.label.includes(q)) return true;
+      // Try numeric conversion
+      const converted = parsePageQuery(q);
+      if (converted && item.label.includes(converted)) return true;
+      return false;
+    }
+
+    // ─── Page autocomplete ───────────────────────────────────────
+
+    const pageAC = createAutocomplete(pageInput, {
+      items: [],
+      filter: pageFilter,
+      onSelect: (item) => {
+        if (editor && item.wordStart != null) {
+          editor.scrollToWord(item.wordStart);
+        }
+        pageInput.value = item.label;
+      },
+    });
+
+    function refreshPageItems() {
+      if (!editor) { pageAC.setItems([]); return; }
+      const pages = editor.getPages();
+      pageAC.setItems(pages.map(p => ({
+        label: p.value,
+        wordStart: p.wordStart,
+      })));
+    }
 
     // Label definitions loaded from /api/labels
     let labelDefs = [];
@@ -240,6 +320,7 @@
       });
       editor.setContextMenuHandler(onContextMenu);
       restoreScrollPosition(id);
+      refreshPageItems();
       container.addEventListener('scroll', onEditorScroll, { passive: true });
       setStatus(`Loaded: ${id}`);
     }

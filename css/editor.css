@@ -259,6 +259,10 @@
 .perek-selector {
   direction: ltr;
   margin-bottom: 1rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .perek-selector input {
@@ -267,6 +271,11 @@
   border: 1px solid #bbb;
   border-radius: 4px;
   width: 320px;
+}
+
+#page-input {
+  width: 160px;
+  direction: rtl;
 }
 
 /* Collapsible groups */
@@ -331,12 +340,17 @@
   align-items: center;
   justify-content: center;
   font-size: 0.6em;
-  color: #1565c0;
+  color: #999;
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
-  border-inline-start: 2px solid #e0e0e0;
-  background: #f5f8ff;
+  border-inline-start: 1px solid #e8e8e8;
+}
+
+.gmr-page-gutter-label {
+  color: #1565c0;
+  background: #e8f0fe;
+  font-weight: 600;
 }
 
 .gmr-word-hidden {

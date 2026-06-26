@@ -618,6 +618,7 @@ export function createEditor(container, initialNodes, options = {}) {
   function onKeyDown(e) {
     const active = document.activeElement;
     if (active && active.closest('.popup, .select-popup-backdrop')) return;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
 
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'z' || e.key === 'Z') {
@@ -1366,6 +1367,19 @@ export function createEditor(container, initialNodes, options = {}) {
     renderVisibleLines();
   }
 
+  function getPages() {
+    const pages = [];
+    let wordIdx = 0;
+    for (const node of nodes) {
+      if (node.type === 'text') {
+        wordIdx++;
+      } else if (node.type === 'tag' && node.tag === 'page' && node.wordCount === 0) {
+        pages.push({ value: node.props.value, wordStart: wordIdx });
+      }
+    }
+    return pages;
+  }
+
   // ─── Public API ─────────────────────────────────────────────
 
   function getNodes() { return nodes; }
@@ -1454,6 +1468,7 @@ export function createEditor(container, initialNodes, options = {}) {
     rerender,
     getScrollPosition,
     scrollToWord,
+    getPages,
     destroy,
   };
 }

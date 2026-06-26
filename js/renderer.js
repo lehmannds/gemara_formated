@@ -168,8 +168,8 @@ export function prepareLines(nodes, options = {}) {
         break;
 
       case 'tag': {
-        // Page markers (wordCount 0) don't span words — just record the
-        // value so the next flushed line carries it for gutter rendering.
+        // Page markers (wordCount 0) don't span words — record the value
+        // so the next flushed line carries it for gutter rendering.
         if (node.tag === 'page' && node.wordCount === 0) {
           pendingPage = node.props.value || null;
           currentLineNodes.push({ ...node, _nodeIndex: ni });
@@ -284,40 +284,57 @@ export function prepareLines(nodes, options = {}) {
       continue;
     }
 
-    // Split into chunks at ~effectiveMax boundaries
+    // Split into chunks at ~effectiveMax boundaries.
+    // Track page tags within the line so each chunk carries the correct page.
     let chunk = [];
     let chunkWordStart = line.wordStart;
     let wordsInChunk = 0;
     let charsInChunk = 0;
-    for (const node of line.nodes) {
-      chunk.push(node);
-      if (node.type === 'text') {
-        wordsInChunk++;
-        charsInChunk += node.value.length + 2;
-        if (charsInChunk >= effectiveMax) {
-          splitLines.push({
-            nodes: chunk,
-            indentLevel: line.indentLevel,
-            wordStart: chunkWordStart,
-            wordCount: wordsInChunk,
-            activeTags: line.activeTags,
-            midSplit: true,
-          });
-          chunkWordStart += wordsInChunk;
-          wordsInChunk = 0;
-          charsInChunk = 0;
-          chunk = [];
-        }
-      }
-    }
-    if (chunk.length > 0) {
-      splitLines.push({
+    // activePage: the page active at the start of the current chunk.
+    // Initialise from the line's page value (set before any mid-line tags).
+    let activePage = line.page || null;
+    let chunkPageTag = null; // page tag encountered in the current chunk
+
+    function flushChunk(isMid) {
+      const sl = {
         nodes: chunk,
         indentLevel: line.indentLevel,
         wordStart: chunkWordStart,
         wordCount: wordsInChunk,
         activeTags: line.activeTags,
-      });
+      };
+      if (isMid) sl.midSplit = true;
+      // If a page tag was seen in this chunk, this chunk starts that page.
+      if (chunkPageTag) {
+        sl.page = chunkPageTag;
+        sl.pageStart = true;
+        activePage = chunkPageTag;
+      } else if (activePage) {
+        sl.page = activePage;
+      }
+      splitLines.push(sl);
+      chunkWordStart += wordsInChunk;
+      wordsInChunk = 0;
+      charsInChunk = 0;
+      chunk = [];
+      chunkPageTag = null;
+    }
+
+    for (const node of line.nodes) {
+      chunk.push(node);
+      if (node.type === 'tag' && node.tag === 'page' && node.wordCount === 0) {
+        chunkPageTag = node.props.value || null;
+      }
+      if (node.type === 'text') {
+        wordsInChunk++;
+        charsInChunk += node.value.length + 2;
+        if (charsInChunk >= effectiveMax) {
+          flushChunk(true);
+        }
+      }
+    }
+    if (chunk.length > 0) {
+      flushChunk(false);
     }
   }
 
@@ -537,10 +554,13 @@ export function renderSingleLine(line, allLines, lineIndex, options = {}) {
   lineEl.style.marginInlineStart = `${line.indentLevel * 2}em`;
   lineEl.dataset.lineIndex = String(lineIndex);
 
-  if (line.page) {
+  {
     const gutter = document.createElement('span');
     gutter.className = 'gmr-page-gutter';
-    gutter.textContent = line.page;
+    if (line.pageStart) {
+      gutter.textContent = line.page;
+      gutter.classList.add('gmr-page-gutter-label');
+    }
     lineEl.appendChild(gutter);
   }
 
