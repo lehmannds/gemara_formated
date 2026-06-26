@@ -1,0 +1,6 @@
+---
+description: Always load project README before planning or editing
+alwaysApply: true
+---
+
+Before planning changes or editing files in this repository, read `README.md` at the repo root and follow its guidance.

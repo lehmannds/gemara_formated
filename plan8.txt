@@ -1,0 +1,51 @@
+Plan 8 – Dedicated Group button + fix right-click clearing selection
+====================================================================
+
+## Feature: Dedicated "Group" toolbar button
+
+The "Group" tag is currently hidden inside the tag-select dropdown alongside
+semantic tags (Speaker, Question, etc.). Grouping is a structural/layout
+operation (like Indent or New Line), not a semantic tag, so it deserves its
+own toolbar button.
+
+**Change:**
+- Add a "Group" button (`btn-group`) to the toolbar in `editor.html`,
+  placed near the existing Indent/Outdent/New Line buttons.
+- Wire it to call `editor.applyTag('group', {})` on click.
+- No changes needed in `editor.js` — `applyTag('group', ...)` already works.
+
+Files: editor.html
+
+## Bug: Right-click context menu clears text selection
+
+**Root cause:** In `editor.js` → `onContextMenu()`, when the user right-clicks
+a word, the handler unconditionally sets `cursorPos`, `selStart`, and `selEnd`
+all to the clicked word's index. This collapses any existing multi-word
+selection to a single word before the context menu appears, making it
+impossible to apply a tag or group to a range of selected words.
+
+**Fix:**
+- In `onContextMenu()`, only reset the selection if the right-clicked word is
+  NOT already inside the current selection range [lo, hi].
+- If the word IS inside the selection, leave `selStart`/`selEnd` unchanged so
+  the menu operates on the full selected range.
+- If the word is outside the selection, collapse to that single word (current
+  behavior — reasonable when right-clicking an unselected word).
+
+Files: js/editor.js (onContextMenu)
+
+## Files touched
+
+| File            | Changes                                      |
+|-----------------|----------------------------------------------|
+| editor.html     | Add "Group" toolbar button + wiring           |
+| js/editor.js    | Fix onContextMenu to preserve selection range |
+
+## Acceptance criteria
+
+1. Toolbar has a visible "Group" button; clicking it with a selection applies
+   a group tag to the selected words.
+2. Right-clicking on a word that is part of an existing selection does NOT
+   clear the selection; the context menu actions operate on the full range.
+3. Right-clicking a word outside the selection still collapses selection to
+   that word (existing behavior preserved).

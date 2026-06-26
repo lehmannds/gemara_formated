@@ -1,0 +1,52 @@
+# Plan: Add "page" tag with gutter + auto-mark script
+
+## Part 1: Page tag feature
+
+### labels.yaml
+Add `page` with `value` arg (text, required). Not collapsible, no newline.
+
+### editor.js — `insertPage(value)`
+Insert `{ type: 'tag', tag: 'page', props: { value }, wordCount: 0 }` at
+cursor position. Expose in API.
+
+### renderer.js — track page per line
+In `prepareLines`, track `currentPage`. When a page tag (wordCount 0) is
+encountered, set currentPage. Store `page` on the line where it appears.
+In `renderLines`, prepend a `.gmr-page-gutter` element to lines with a page.
+
+### editor.html — wire UI
+Special-case "page" in `applyTagWithFlow` to prompt for value and call
+`insertPage`.
+
+### css/editor.css — gutter style
+`.gmr-page-gutter` in the margin.
+
+## Part 2: Auto-mark script
+
+### Approach
+Node script `scripts/mark-pages.js`:
+1. Read `perakim.yaml` for start_page/offset per perek.
+2. For each perek, load consecutive page files from start_page onwards.
+3. Extract plain words from each page file (strip `)}}`-like markers).
+4. Parse the perek markup, extract plain text words.
+5. Match: starting from the perek's start_page offset, find where each
+   subsequent page's first words appear in the perek text (sequential search).
+6. Insert `[page value=X {0}]` at matching positions in the perek markup.
+7. Write updated perek files.
+
+### Gimatria conversion
+Convert daf number + amud to Hebrew (e.g. 42.1 → "מב א", 42.2 → "מב ב").
+
+### Run on Hulin
+`node scripts/mark-pages.js texts/hulin`
+
+## Files
+- `labels.yaml`
+- `js/editor.js`, `js/renderer.js`, `editor.html`, `css/editor.css`
+- `scripts/mark-pages.js` (new)
+
+## Acceptance criteria
+- Page markers render with gutter.
+- Script correctly identifies page boundaries and inserts markers.
+- Perek files round-trip cleanly (serialize → parse → serialize).
+- Existing tests pass.

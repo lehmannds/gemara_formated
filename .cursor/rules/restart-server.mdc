@@ -1,0 +1,6 @@
+---
+description: Restart the dev server after any code change that affects runtime
+alwaysApply: true
+---
+
+After completing any feature or code change that touches `server.js`, `js/`, `css/`, or `editor.html`, run `.\restart.ps1` in the terminal to restart the dev server so the changes take effect in the browser.

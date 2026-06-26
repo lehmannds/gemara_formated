@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemara Editor</title>
+  <link rel="stylesheet" href="./css/tokens.css">
+  <link rel="stylesheet" href="./css/editor.css">
+  <link rel="stylesheet" href="./css/autocomplete.css">
+  <link rel="stylesheet" href="./css/select-popup.css">
+  <link rel="stylesheet" href="./css/popup.css">
+  <link rel="stylesheet" href="./css/form-popup.css">
+  <link rel="stylesheet" href="./css/message.css">
+</head>
+<body>
+  <div class="editor-page">
+    <div class="perek-selector" id="perek-selector">
+      <label>Perek: <input type="text" id="perek-input" placeholder="Search by name or number…" autocomplete="off"></label>
+    </div>
+
+    <div class="editor-toolbar">
+      <select id="tag-select">
+        <option value="speaker">Speaker</option>
+        <option value="question">Question</option>
+        <option value="answer">Answer</option>
+        <option value="refers-to">Refers-to</option>
+        <option value="group">Group</option>
+      </select>
+      <button id="btn-tag">Apply Tag</button>
+      <button id="btn-indent-in">&gt;&gt; Indent</button>
+      <button id="btn-indent-out">&lt;&lt; Outdent</button>
+      <button id="btn-break">New Line</button>
+      <button id="btn-group">Group</button>
+      <button id="btn-remove-tag">Remove Tag</button>
+      <label><input type="checkbox" id="chk-hover" checked> Hover Tags</label>
+      <button id="btn-save">Save</button>
+    </div>
+
+    <div id="editor-container"></div>
+
+    <div class="editor-status" id="status"></div>
+  </div>
+
+  <script type="module">
+    import { parse, serialize } from './js/parser.js';
+    import { createEditor } from './js/editor.js';
+    import { createContextMenu } from './js/context-menu.js';
+    import { createAutocomplete } from './js/autocomplete.js';
+    import { createSelectPopup } from './js/select-popup.js';
+    import { createFormPopup } from './js/form-popup.js';
+    import { showMessage } from './js/message.js';
+    import { getPerekFromUrl, setPerekInUrl, onUrlChange } from './js/url.js';
+
+    const perekInput = document.getElementById('perek-input');
+    const container = document.getElementById('editor-container');
+    const status = document.getElementById('status');
+
+    let editor = null;
+    let currentId = null;
+    let perekItems = [];
+    const contextMenu = createContextMenu(document.body);
+
+    // Label definitions loaded from /api/labels
+    let labelDefs = [];
+    let TAG_TYPES = [];
+
+    function setStatus(msg) {
+      status.textContent = msg;
+    }
+
+    // ─── Load label definitions from API ────────────────────────
+
+    async function loadLabels() {
+      try {
+        const res = await fetch('/api/labels');
+        const data = await res.json();
+        labelDefs = data.labels || [];
+        TAG_TYPES = labelDefs.map(l => l.name);
+        populateTagSelect();
+      } catch (err) {
+        console.error('Failed to load labels:', err);
+        TAG_TYPES = ['speaker', 'question', 'answer', 'refers-to', 'group', 'mishna'];
+        labelDefs = TAG_TYPES.map(name => ({
+          name,
+          args: [],
+          collapsible: name === 'group',
+          newline_before: true,
+        }));
+        populateTagSelect();
+      }
+    }
+
+    /** Tag names with `newline_before: false` in labels.yaml — omitted from this set. */
+    function buildNewlineBeforeExclusions() {
+      const ex = new Set();
+      for (const l of labelDefs) {
+        if (l.newline_before === false) ex.add(l.name);
+      }
+      return ex;
+    }
+
+    /** Tag names with `collapsible: true` in labels.yaml (collapse UI + nested shells). */
+    function buildCollapsibleTags() {
+      const s = new Set();
+      for (const l of labelDefs) {
+        if (l.collapsible) s.add(l.name);
+      }
+      if (s.size === 0) s.add('group');
+      return s;
+    }
+
+    function populateTagSelect() {
+      const sel = document.getElementById('tag-select');
+      sel.innerHTML = '';
+      for (const name of TAG_TYPES) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      }
+    }
+
+    function getLabelDef(name) {
+      return labelDefs.find(l => l.name === name) || null;
+    }
+
+    function getUserArgs(labelDef) {
+      if (!labelDef || !labelDef.args) return [];
+      return labelDef.args.filter(a => !a.auto);
+    }
+
+    // ─── Perek selector (autocomplete) ─────────────────────────
+
+    async function loadPerakim() {
+      try {
+        const msRes = await fetch('/api/masechtot');
+        const { masechtot } = await msRes.json();
+        if (!masechtot || masechtot.length === 0) return;
+
+        // Load perakim for each masechet
+        for (const m of masechtot) {
+          const res = await fetch(`/api/perakim/${encodeURIComponent(m)}`);
+          const data = await res.json();
+          for (const p of data.perakim) {
+            perekItems.push({
+              label: `${m} — Perek ${p.perek} – ${p.title}`,
+              value: `${m}/perakim/${p.perek}`,
+              masechet: m,
+              perek: p.perek,
+              title: p.title,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load perakim:', err);
+      }
+    }
+
+    function perekFilter(query, item) {
+      if (!query.trim()) return true;
+      const q = query.toLowerCase();
+      const tokens = q.split(/\s+/);
+      return tokens.every(t =>
+        item.label.toLowerCase().includes(t) ||
+        String(item.perek) === t ||
+        item.title.includes(t) ||
+        item.masechet.toLowerCase().includes(t)
+      );
+    }
+
+    let perekAutocomplete = null;
+
+    async function initPerekSelector() {
+      await loadPerakim();
+      perekAutocomplete = createAutocomplete(perekInput, {
+        items: perekItems,
+        onSelect: (item) => loadText(item.value),
+        filter: perekFilter,
+        minLength: 0,
+      });
+
+      // Load perek from URL hash on startup
+      const hashId = getPerekFromUrl();
+      if (hashId) loadText(hashId, { updateUrl: false });
+    }
+
+    // Handle browser back/forward
+    onUrlChange((id) => {
+      if (id && id !== currentId) loadText(id, { updateUrl: false });
+    });
+
+    (async () => {
+      await loadLabels();
+      await initPerekSelector();
+    })();
+
+    // ─── Load / Save ───────────────────────────────────────────
+
+    // ─── Scroll position persistence ────────────────────────────
+
+    let scrollSaveTimer = null;
+
+    function saveScrollPosition() {
+      if (!editor || !currentId) return;
+      const pos = editor.getScrollPosition();
+      try { localStorage.setItem(`scroll:${currentId}`, String(pos)); } catch (_) {}
+    }
+
+    function restoreScrollPosition(id) {
+      if (!editor) return;
+      try {
+        const saved = localStorage.getItem(`scroll:${id}`);
+        if (saved !== null) editor.scrollToWord(parseInt(saved, 10));
+      } catch (_) {}
+    }
+
+    function onEditorScroll() {
+      if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+      scrollSaveTimer = setTimeout(saveScrollPosition, 500);
+    }
+
+    async function loadText(id, { updateUrl = true } = {}) {
+      currentId = id;
+      if (updateUrl) setPerekInUrl(id);
+      const encodedId = id.split('/').map(encodeURIComponent).join('/');
+      const res = await fetch(`/api/text/${encodedId}`);
+      if (!res.ok) {
+        setStatus(`Error loading: ${id}`);
+        return;
+      }
+      const { content } = await res.json();
+      const nodes = parse(content);
+
+      container.removeEventListener('scroll', onEditorScroll);
+      if (editor) editor.destroy();
+      editor = createEditor(container, nodes, {
+        newlineBeforeExclusions: buildNewlineBeforeExclusions(),
+        collapsibleTags: buildCollapsibleTags(),
+        useVirtualScroll: true,
+      });
+      editor.setContextMenuHandler(onContextMenu);
+      restoreScrollPosition(id);
+      container.addEventListener('scroll', onEditorScroll, { passive: true });
+      setStatus(`Loaded: ${id}`);
+    }
+
+    // ─── Answer → Question linking ────────────────────────────
+
+    const answerPopup = createSelectPopup({
+      title: 'Select the question this answers:',
+      items: [],
+      onSelect: (item) => {
+        if (!editor) return;
+        editor.ensureQuestionIds();
+        editor.applyTag('answer', { to: item.value });
+      },
+    });
+
+    function applyTagWithFlow(tag) {
+      if (!editor) return;
+
+      // Page is a positional marker (wordCount 0), not a word-spanning tag
+      if (tag === 'page') {
+        const fp = createFormPopup({
+          title: 'Insert page marker',
+          fields: [
+            { name: 'value', label: 'Page (e.g. כט א)', type: 'text', default: '', required: true },
+          ],
+          onSubmit: (data) => {
+            if (data.value) editor.insertPage(data.value);
+          },
+        });
+        fp.open();
+        return;
+      }
+
+      // Answer has a special select-popup flow for picking the question
+      if (tag === 'answer') {
+        editor.ensureQuestionIds();
+        const questions = editor.getQuestions();
+        if (questions.length === 0) {
+          setStatus('No questions found in this text.');
+          return;
+        }
+        const items = questions.map(q => ({
+          label: `${q.id || '?'}: ${q.preview}`,
+          value: q.id,
+        }));
+        answerPopup.open(items);
+        return;
+      }
+
+      const def = getLabelDef(tag);
+      const userArgs = getUserArgs(def);
+
+      // No user-facing args → apply immediately
+      if (userArgs.length === 0) {
+        editor.applyTag(tag, {});
+        return;
+      }
+
+      // Has user args → open form popup
+      const fields = userArgs.map(a => ({
+        name: a.name,
+        label: a.name.replace(/_/g, ' '),
+        type: a.type || 'text',
+        default: a.default !== undefined ? a.default : (a.type === 'boolean' ? false : ''),
+        required: a.required || false,
+      }));
+
+      const formPopup = createFormPopup({
+        title: `${tag} — arguments`,
+        fields,
+        onSubmit: (data) => {
+          const props = {};
+          for (const [k, v] of Object.entries(data)) {
+            if (v !== '' && v !== null && v !== undefined) {
+              props[k] = typeof v === 'boolean' ? String(v) : v;
+            }
+          }
+          editor.applyTag(tag, props);
+        },
+      });
+      formPopup.open();
+    }
+
+    // ─── Edit existing tag ─────────────────────────────────────
+
+    function editExistingTag(tagInfo) {
+      if (!editor) return;
+      const { tag, props, nodeIndex } = tagInfo;
+      const def = getLabelDef(tag);
+      const allArgs = def ? (def.args || []) : [];
+      const editableArgs = allArgs.filter(a => !a.auto);
+
+      if (editableArgs.length === 0) {
+        setStatus(`Tag "${tag}" has no editable arguments.`);
+        return;
+      }
+
+      const fields = editableArgs.map(a => ({
+        name: a.name,
+        label: a.name.replace(/_/g, ' '),
+        type: a.type || 'text',
+        default: props[a.name] !== undefined ? props[a.name] : (a.default !== undefined ? a.default : ''),
+        required: a.required || false,
+      }));
+
+      const fp = createFormPopup({
+        title: `Edit ${tag}`,
+        fields,
+        onSubmit: (data) => {
+          const newProps = {};
+          // Preserve auto/existing props not in the form
+          for (const [k, v] of Object.entries(props)) {
+            newProps[k] = v;
+          }
+          for (const [k, v] of Object.entries(data)) {
+            if (v !== '' && v !== null && v !== undefined) {
+              newProps[k] = typeof v === 'boolean' ? String(v) : v;
+            } else {
+              delete newProps[k];
+            }
+          }
+          editor.editTagProps(nodeIndex, newProps);
+        },
+      });
+      fp.open();
+    }
+
+    // ─── Context menu ──────────────────────────────────────────
+
+    function onContextMenu(e, wordIdx, tagsOnWord, groupsOnWord = []) {
+      const items = [];
+
+      // Word-specific items only when a word was right-clicked
+      if (wordIdx !== null) {
+        items.push(
+          {
+            label: 'Apply Tag',
+            children: TAG_TYPES.map(t => ({
+              label: t,
+              action: () => applyTagWithFlow(t),
+            })),
+          },
+          { label: 'Insert Break', action: () => editor.insertBreak() },
+          { label: 'Indent >>', action: () => editor.insertIndent('in') },
+          { label: 'Outdent <<', action: () => editor.insertIndent('out') },
+        );
+
+        if (tagsOnWord.length > 0) {
+          items.push({
+            label: 'Edit Tag',
+            children: tagsOnWord.map(t => ({
+              label: t.tag,
+              action: () => editExistingTag(t),
+            })),
+          });
+          items.push({
+            label: 'Remove Tag',
+            children: tagsOnWord.map(t => ({
+              label: t.tag,
+              action: () => editor.removeTag(),
+            })),
+          });
+          items.push({
+            label: 'End tag before selection (strip tail)',
+            children: tagsOnWord.map(t => ({
+              label: t.tag,
+              action: () => {
+                const ok = editor.extractTagTailFromSelection(t.nodeIndex);
+                if (!ok) setStatus('Select a word inside the tag span first (start of tail to remove).');
+              },
+            })),
+          });
+        }
+      }
+
+      // Group items (shown for both word-in-group and direct group clicks)
+      if (groupsOnWord.length > 0) {
+        const allGroups = editor.getGroups();
+        for (const g of groupsOnWord) {
+          const full = allGroups.find(fg => fg.nodeIndex === g.nodeIndex) || g;
+          items.push({
+            label: full.collapsed ? `Expand (${full.tag})` : `Collapse (${full.tag})`,
+            action: () => editor.toggleGroup(g.nodeIndex),
+          });
+          items.push({
+            label: 'Set Collapsed Text',
+            action: () => {
+              const current = full.label || '';
+              const fp = createFormPopup({
+                title: 'Set Collapsed Text',
+                fields: [
+                  { name: 'label', label: 'Label', type: 'text', default: current },
+                ],
+                onSubmit: (data) => {
+                  editor.setGroupLabel(g.nodeIndex, data.label || '');
+                },
+              });
+              fp.open();
+            },
+          });
+        }
+      }
+
+      if (items.length > 0) {
+        contextMenu.show(e.clientX, e.clientY, items);
+      }
+    }
+
+    // ─── Save ──────────────────────────────────────────────────
+
+    async function saveText() {
+      if (!editor || !currentId) return;
+      try {
+        const markup = serialize(editor.getNodes());
+        const res = await fetch(`/api/text/${currentId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: markup }),
+        });
+        if (res.ok) {
+          setStatus(`Saved: ${currentId}`);
+          showMessage('Saved successfully!', { type: 'success' });
+        } else {
+          setStatus(`Save failed: ${currentId}`);
+          showMessage('Save failed.', { type: 'error' });
+        }
+      } catch (err) {
+        setStatus(`Save error: ${err.message}`);
+        showMessage('Save error: ' + err.message, { type: 'error', duration: 5000 });
+      }
+    }
+
+    // ─── Toolbar wiring ────────────────────────────────────────
+
+    document.getElementById('btn-tag').addEventListener('click', () => {
+      const tag = document.getElementById('tag-select').value;
+      applyTagWithFlow(tag);
+    });
+
+    document.getElementById('btn-indent-in').addEventListener('click', () => {
+      if (editor) editor.insertIndent('in');
+    });
+
+    document.getElementById('btn-indent-out').addEventListener('click', () => {
+      if (editor) editor.insertIndent('out');
+    });
+
+    document.getElementById('btn-break').addEventListener('click', () => {
+      if (editor) editor.insertBreak();
+    });
+
+    document.getElementById('btn-group').addEventListener('click', () => {
+      if (editor) applyTagWithFlow('group');
+    });
+
+    document.getElementById('btn-remove-tag').addEventListener('click', () => {
+      if (editor) editor.removeTag();
+    });
+
+    document.getElementById('chk-hover').addEventListener('change', (e) => {
+      if (editor) editor.toggleHover(e.target.checked);
+    });
+
+    document.getElementById('btn-save').addEventListener('click', saveText);
+  </script>
+</body>
+</html>

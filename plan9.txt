@@ -1,0 +1,54 @@
+Plan 9 – URL persistence for perek selection + Undo/Redo
+=========================================================
+
+## Feature 1: Persist selected perek in the URL
+
+When the user selects a perek, encode its ID in the URL hash (e.g.
+`#hulin/perakim/2`). On page load, if a hash is present, auto-load
+that perek. This allows refreshing back to the same place and sharing
+links.
+
+## Feature 2: New `js/url.js` module
+
+Create a dedicated module (`js/url.js`) responsible for:
+- Reading the current perek ID from the URL hash.
+- Writing the perek ID to the URL hash (using `history.replaceState`
+  so no extra history entries are created on selection).
+- Listening for `hashchange` / `popstate` events and notifying the app
+  when the hash changes (e.g. browser back/forward).
+- Exported API:
+  - `getPerekFromUrl()` → string | null
+  - `setPerekInUrl(id)` — updates hash without triggering navigation
+  - `onUrlChange(callback)` — registers a listener for hash changes
+  - `removeUrlChangeListener(callback)` — cleanup
+
+## Feature 3: Ctrl+Z / Ctrl+Y undo/redo
+
+Add undo/redo to the editor:
+- Before each mutating operation (applyTag, insertIndent, insertBreak,
+  removeTag, deleteBackward, deleteForward, deleteSelection, pasteText),
+  push a snapshot of the `nodes` array onto an undo stack.
+- Ctrl+Z pops from undo stack → push current state to redo → restore.
+- Ctrl+Y (or Ctrl+Shift+Z) pops from redo stack → push to undo → restore.
+- Cap undo stack at 20 entries to keep memory minimal.
+- Keyboard handling lives in the existing `onKeyDown` in `editor.js`.
+- Expose `undo()` and `redo()` on the editor public API.
+
+## Files touched
+
+| File           | Changes                                              |
+|----------------|------------------------------------------------------|
+| js/url.js      | NEW — URL/history management module                  |
+| editor.html    | Import url.js; use it on perek select & page load    |
+| js/editor.js   | Add undo/redo stack + Ctrl+Z/Y handling + public API |
+| docs/client-side-javascript.md | Add url.js docs entry             |
+| docs/overview.md               | Add url.js to JS module list      |
+
+## Acceptance criteria
+
+1. Selecting a perek updates the URL hash to its ID.
+2. Refreshing the page with a hash auto-loads that perek.
+3. Browser back/forward navigates between previously selected perakim.
+4. Ctrl+Z undoes the last structural edit (tag, break, indent, delete,
+   paste). Ctrl+Y redoes it.
+5. Undo/redo correctly restores cursor position and selection.

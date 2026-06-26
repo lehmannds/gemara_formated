@@ -1,0 +1,342 @@
+/* Editor layout */
+.editor-page {
+  font-family: 'David', 'Times New Roman', serif;
+  direction: rtl;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  direction: ltr;
+}
+
+.editor-toolbar button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.editor-toolbar button:hover {
+  background: #e8e8e8;
+}
+
+.editor-toolbar select {
+  padding: 0.4rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+}
+
+.editor-status {
+  direction: ltr;
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.5rem;
+  padding: 0.3rem;
+}
+
+/* Text display area */
+.gmr-rendered {
+  font-size: 1.4rem;
+  line-height: 2.2;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  min-height: 200px;
+  max-height: 70vh;
+  background: #fefefe;
+  overflow-wrap: break-word;
+}
+
+/* Virtual scroll internals */
+.vs-sizer {
+  /* explicit height set in JS = totalLines * lineHeight (scroll range) */
+}
+
+.vs-content {
+  /* pinned to the top of the viewport while the sizer scrolls underneath */
+}
+
+.gmr-line {
+  box-sizing: border-box;
+  text-align: justify;
+  text-align-last: start;
+  position: relative;
+}
+
+/* Mid-split lines (auto-wrapped by width, not by an explicit break) should
+   fill the full row so text is flush on both edges. */
+.gmr-line-mid {
+  text-align-last: justify;
+}
+
+/* A collapsed group's summary must not be stretched — align to start. */
+.gmr-line:has(.gmr-group-summary) {
+  text-align: start;
+  text-align-last: start;
+}
+
+/* Inside the virtual scroller, every line is exactly one fixed-height row.
+   overflow:hidden guarantees the height never exceeds LINE_HEIGHT, so the
+   total content height always equals totalLines * lineHeight — no jumps. */
+.gmr-rendered .vs-content .gmr-line {
+  height: 50px;
+  line-height: 50px;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.gmr-word {
+  cursor: pointer;
+  padding: 0.1em 0.15em;
+  border-radius: 2px;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.gmr-word:hover {
+  background: #f0f0f0;
+}
+
+/* Selection */
+.gmr-selected {
+  background: #cce5ff !important;
+  outline: 2px solid #66b3ff;
+  outline-offset: 1px;
+}
+
+/* Tag colors */
+.tag-speaker {
+  background: #e8f5e9;
+  border-bottom: 2px solid #4caf50;
+}
+
+.tag-question {
+  background: #fff3e0;
+  border-bottom: 2px solid #ff9800;
+}
+
+.tag-answer {
+  background: #e3f2fd;
+  border-bottom: 2px solid #2196f3;
+}
+
+.tag-refers-to {
+  background: #fce4ec;
+  border-bottom: 2px solid #e91e63;
+}
+
+.tag-group {
+  background: #f3e5f5;
+  border-bottom: 2px solid #9c27b0;
+}
+
+.tag-mishna {
+  background: #fff8e1;
+  border-bottom: 2px solid #fbc02d;
+}
+
+/* Gap cursor bar — absolutely positioned so it never affects word reflow */
+.gmr-cursor-bar {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: #333;
+  animation: cursor-blink 1s step-end infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* In RTL the cursor sits at the right (start) edge of the word */
+[dir="rtl"] .gmr-cursor-bar,
+.gmr-cursor-bar.gmr-cursor-start {
+  right: -2px;
+  left: auto;
+}
+
+/* Cursor at end of text sits at the left (end) edge of the last word */
+.gmr-cursor-bar.gmr-cursor-end {
+  right: auto;
+  left: -2px;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* When selected overrides tag color */
+.gmr-selected.tag-speaker,
+.gmr-selected.tag-question,
+.gmr-selected.tag-answer,
+.gmr-selected.tag-refers-to,
+.gmr-selected.tag-group {
+  background: #cce5ff !important;
+}
+
+/* Tooltip */
+.gmr-tooltip {
+  position: absolute;
+  background: #333;
+  color: #fff;
+  padding: 0.3rem 0.6rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+  direction: ltr;
+}
+
+/* Context menu */
+.gmr-context-menu {
+  position: absolute;
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem 0;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 2000;
+  min-width: 160px;
+  direction: ltr;
+}
+
+.gmr-context-menu-item {
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  position: relative;
+}
+
+.gmr-context-menu-item:hover {
+  background: #f0f0f0;
+}
+
+.gmr-has-submenu::after {
+  content: '▶';
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+}
+
+.gmr-context-submenu {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem 0;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  min-width: 140px;
+}
+
+.gmr-has-submenu:hover > .gmr-context-submenu {
+  display: block;
+}
+
+/* Perek selector */
+.perek-selector {
+  direction: ltr;
+  margin-bottom: 1rem;
+}
+
+.perek-selector input {
+  padding: 0.5rem 0.7rem;
+  font-size: 1rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  width: 320px;
+}
+
+/* Collapsible groups */
+.gmr-group {
+  display: inline;
+  border-radius: 3px;
+  position: relative;
+}
+
+.gmr-group-toggle {
+  display: inline-block;
+  background: none;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0.1em 0.3em;
+  margin-inline-end: 0.3em;
+  vertical-align: middle;
+  line-height: 1;
+  color: #666;
+}
+
+.gmr-group-toggle:hover {
+  background: #eee;
+  color: #333;
+}
+
+.gmr-group-collapsed .gmr-word-hidden {
+  display: none;
+}
+
+.gmr-group-summary {
+  display: inline;
+  font-style: italic;
+  color: #888;
+  font-size: 0.9em;
+  cursor: pointer;
+  padding: 0.1em 0.3em;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+
+.gmr-group-summary:hover {
+  background: #f0f0f0;
+}
+
+.gmr-group-summary.gmr-selected {
+  background: #cce5ff !important;
+  outline: 2px solid #66b3ff;
+  outline-offset: 1px;
+}
+
+/* Page gutter marker */
+.gmr-page-gutter {
+  position: absolute;
+  inset-inline-start: calc(100% + 0.5em);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7em;
+  color: #1565c0;
+  background: #e3f2fd;
+  border: 1px solid #90caf9;
+  border-radius: 3px;
+  padding: 0.05em 0.4em;
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1.4;
+  z-index: 1;
+}
+
+.gmr-word-hidden {
+  display: none;
+}

@@ -1,0 +1,109 @@
+Plan 03: Expanded groups — each nested group on its own indented line
+
+## Reported problems
+
+1. After expanding an OUTER group, its inner groups are "garbled": instead of each
+   inner group sitting on its own line, they pile up inline inside the outer group's
+   element (and content from later logical lines is swallowed into the first line).
+2. Request: when a group contains inner groups, the inner groups should be INDENTED
+   by default (visual hierarchy).
+
+## Root cause (verified by rendering a nested sample)
+
+Both render paths (full render and the virtual scroller) use `renderLines` in
+js/renderer.js. `renderLines` keeps ONE `activeGroups` element stack for the whole
+range and loops every logical line with it. A group's `<span class="gmr-group">` is
+created once (when its tag node is met) and every later word / nested-group is
+appended into `findLastExpandedCollapsible(activeGroups).element`. Because that
+element belongs to the line where the group OPENED, content that prepareLines split
+onto later logical lines is still appended into the first line's group element.
+
+Result for an expanded outer group with two collapsed inner groups (IN1, IN2)
+separated by a break:
+  - Expected: IN1 on line 1, IN2 on line 2, both indented under the outer toggle.
+  - Actual: one line div holds the outer span with BOTH IN1 and IN2 nested inside it;
+    the second line div is empty.
+
+So: visual nesting is done by DOM containment that ignores logical-line boundaries,
+and expanded groups never break their content onto separate indented lines.
+
+## Solution — model nesting with indentation + per-line layout
+
+Switch the nesting model for COLLAPSIBLE groups from "DOM-contain everything in one
+inline span" to "one logical line per child, indented by group depth". Collapsed
+groups keep their current single-line summary behavior (unchanged). This keeps every
+logical line exactly one row, which the virtual scroller depends on.
+
+### A. js/renderer.js — prepareLines (line splitting + indent)
+
+Add a `groupDepth` counter for currently-open EXPANDED collapsible groups.
+
+- Each emitted line's `indentLevel` becomes `explicitIndent + groupDepth`
+  (auto-indent for nested content → satisfies request 2).
+- In the `tag` case, for a COLLAPSIBLE tag:
+  - If the current line already has content, `flushLine()` first so the group starts
+    on its own line (makes every group — top-level or nested — start a new line,
+    "like every group").
+  - Push the tag (renders the toggle/shell).
+  - If the group is EXPANDED (not in collapsedGroups): `flushLine()` right after the
+    tag and `groupDepth++`, so the toggle sits on its own line and the group's content
+    flows onto following lines indented one level deeper.
+  - If COLLAPSED: keep current behavior (summary + hidden words on one line; internal
+    breaks absorbed).
+- When an EXPANDED collapsible group's span is exhausted (its tracked remaining hits
+  0): `groupDepth--` and `flushLine()` so the next sibling starts fresh.
+- Collapsed-group break absorption (`collapsedDepth`) stays as-is.
+
+### B. js/renderer.js — renderLines / render (stop cross-line capture)
+
+- At the START of each line iteration, re-anchor any carried-over EXPANDED group in
+  `activeGroups` so `element = lineEl` (the current line div). New content then
+  attaches to the current line, not to the previous line's group span. Collapsed
+  groups never span lines, so they are unaffected.
+- Net effect: each logical line is self-contained; nested groups render on their own
+  indented line divs. The toggle button keeps its `data-node-index`, so collapse/
+  expand and highlight logic in editor.js continue to work unchanged.
+- `renderSingleLine` is currently UNUSED by the editor (only referenced by an old
+  plan); leave it as-is or mirror the same fix for consistency (low priority).
+
+### C. css/editor.css
+
+- Ensure indentation is visible for nested group lines. Lines already use
+  `margin-inline-start: indentLevel * 2em` (set inline by the renderer), so the depth
+  added in (A) is enough. Add a small style touch only if needed (e.g. keep the
+  toggle vertically aligned on its own line). No structural CSS rewrite.
+
+## Files touched
+
+| File                  | Change                                                       |
+| --------------------- | ------------------------------------------------------------ |
+| js/renderer.js        | prepareLines: groupDepth indent + flush around expanded      |
+|                       | groups; renderLines: re-anchor expanded groups per line.     |
+| tests/renderer.test.js| New tests: expanded outer with 2 inner groups → 2 indented   |
+|                       | lines, no cross-line capture; collapsed outer still 1 line;  |
+|                       | nested indent increases with depth.                          |
+| tests/editor.test.js  | Test: toggle outer expand/collapse keeps inner groups on     |
+|                       | their own lines (regression for the garble).                 |
+| docs/client-side-javascript.md | One line: expanded groups lay each nested group on   |
+|                       | its own indented line.                                       |
+| docs/js/editor.md (or renderer note) | Brief note on group line/indent model.        |
+
+## Acceptance criteria
+
+1. Expanding an outer group shows each inner group on its own line (no inline pile-up,
+   no swallowed/empty lines).
+2. Inner groups are indented one level deeper than their parent; depth stacks for
+   deeper nesting.
+3. Collapsing the outer group returns to a single summary line; toggling back and
+   forth is stable.
+4. Each logical line remains a single row (virtual scroller unaffected); large texts
+   still scroll correctly.
+5. Collapse/expand toggles and summary highlighting still work (node-index intact).
+6. All existing tests pass; new tests above pass. `npm test` green.
+
+## Verification
+
+- `npm test`.
+- Manual in editor.html: build outer→inner groups, expand/collapse, confirm each inner
+  group is its own indented line. Test with a large text to confirm scrolling.
+- Run `.\restart.ps1` after code changes.

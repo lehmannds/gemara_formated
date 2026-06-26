@@ -1,0 +1,108 @@
+Plan 02: Fix group-creation hierarchy bugs (nesting order)
+
+## Context
+
+Groups are stored in the flat `nodes` array as `{ type: 'tag', tag: 'group', wordCount }`
+nodes that precede the words they cover. The renderer (js/renderer.js) builds the
+visual hierarchy from the ORDER of tag nodes plus their wordCount: when it meets a
+new collapsible tag it nests it inside the innermost still-open group
+(`findLastExpandedCollapsible`). So:
+
+  - A group whose tag appears EARLIER and whose span CONTAINS a later group becomes
+    that later group's PARENT.
+  - When two groups start on the same word, the one whose tag comes FIRST in the
+    array becomes the outer/parent.
+
+`applyTag` (js/editor.js) always inserts the new tag at `findTextNodePosition(lo)`,
+i.e. immediately before the first selected text node but AFTER every tag that
+already precedes that word. That ordering is only correct when the new group is a
+CHILD; it is wrong when the new group should CONTAIN an existing group that starts
+on the same word.
+
+## Bugs (reproduced)
+
+Bug A — "group over 2+ groups + text" (the clearly broken one):
+  Existing: group G1 [w0..w1], group G2 [w4..w5]. Select w0..w6, apply Group → C.
+  C (wordCount 7) starts on w0, same as G1. Current code inserts C AFTER G1, so the
+  array is [G1, C, ...] and the renderer nests C *inside* G1.
+  Observed DOM tree: G1 > C > G2  (WRONG).
+  Expected DOM tree:  C > { G1, G2 }  (new group is the common parent).
+
+Bug B — "sub-group on a substring of the first group":
+  Selecting a strict substring of an existing group already nests correctly in
+  isolation for interior / shared-end / shared-start subsets (verified). The single
+  case that is fragile is when the new group shares the START word with an existing
+  group: correctness currently depends on insertion order alone. The fix below makes
+  the ordering rule explicit (by containment) so shared-start subsets stay nested as
+  children and supersets become parents, deterministically.
+
+Root cause for both: insertion position of the new tag does not respect containment
+when other tags begin on the same start word.
+
+## Fix (single, minimal change in js/editor.js `applyTag`)
+
+When inserting the new tag for selection [lo..hi] (newWordCount = hi - lo + 1):
+
+1. Start with `insertPos = findTextNodePosition(lo)` (current behavior).
+2. Walk BACKWARD over the run of `tag` nodes immediately preceding `insertPos`
+   (these all start on word `lo`). For each such preceding tag T:
+     - If `T.wordCount <= newWordCount` → T is contained in [lo..hi] → the new group
+       must WRAP it → move `insertPos` before T (continue walking).
+     - Else (`T.wordCount > newWordCount`) → T is an ancestor of the new group →
+       stop; the new tag stays inside T.
+3. Insert the new tag at the final `insertPos`.
+4. Call `remapCollapsedGroupsAfterInsert(insertPos)` and the
+   `collapsedGroups.add(insertPos)` default-collapse logic using the FINAL insertPos
+   (already the case — just ensure they use the adjusted value).
+
+This is purely an ordering adjustment of where the new tag node is spliced in. No
+change to wordCount math, no change to the renderer, no new API.
+
+### Why it fixes both bugs
+
+- Bug A: G1.wordCount (2) <= C.wordCount (7) → C is spliced BEFORE G1 →
+  array [C, G1, ...] → renderer nests G1 (and later G2, which is contained in C and
+  opens after G1 closes) as children of C. Tree becomes C > { G1, G2 }.
+- Bug B (shared start subset): existing G.wordCount (5) > new (3) → new stays AFTER G
+  → G remains the parent. Interior / shared-end subsets are unaffected (no preceding
+  tag run at the new start word). Equal-range selection makes the new group the
+  outer wrapper (consistent "wrap what I selected" behavior).
+
+### Edge cases / non-goals
+
+- Partial overlaps (selection that overlaps a group but is neither subset nor
+  superset, e.g. [w2..w6] over G[w0..w4]) cannot be represented as a clean tree and
+  are out of scope; behavior is left as-is (no regression intended).
+- Non-collapsible tags (speaker/question/etc.) use the same insertion code; the
+  containment ordering is semantically correct for them too and existing tests do
+  not stack a larger tag on the same start word, so they are unaffected.
+
+## Files touched
+
+| File                  | Change                                                        |
+| --------------------- | ------------------------------------------------------------- |
+| js/editor.js          | Adjust `applyTag` insertion index by containment (see above). |
+| tests/editor.test.js  | Add tests: (1) group over 2 groups + text → new is parent of  |
+|                       | both; (2) sub-group sharing start word stays nested as child; |
+|                       | (3) regression: existing subset/sibling cases still correct.  |
+| docs/client-side-javascript.md | One line: applyTag orders new group tags by         |
+|                       | containment so supersets wrap existing groups.                |
+
+## Acceptance criteria
+
+1. Creating a group over a selection that contains one or more existing groups
+   produces a new group that is the PARENT of all contained groups in the rendered
+   DOM hierarchy (verified via DOM tree: new group element contains the existing
+   group elements).
+2. Creating a group on a substring of an existing group nests the new group as a
+   CHILD of the existing group (all subset positions: shared-start, shared-end,
+   interior).
+3. All existing tests in tests/ still pass; new tests above pass.
+4. No changes to wordCount semantics or the renderer.
+
+## Verification
+
+- `npm test` (node:test) — all green.
+- Manual: in editor.html, build group hierarchies for both scenarios; confirm the
+  nested toggle/shell layout matches the expected trees above.
+- After code changes, run `.\restart.ps1` to restart the dev server.

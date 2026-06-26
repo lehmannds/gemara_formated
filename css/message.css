@@ -1,0 +1,38 @@
+.gmr-message {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.6rem 1.4rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  z-index: 5000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  opacity: 1;
+  transition: opacity 0.35s ease;
+  pointer-events: auto;
+  direction: ltr;
+}
+
+.gmr-message--success {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
+
+.gmr-message--error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+}
+
+.gmr-message--info {
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px solid #90caf9;
+}
+
+.gmr-message--fade-out {
+  opacity: 0;
+}

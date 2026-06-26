@@ -1,0 +1,35 @@
+/* Global base — minimal reset + typography */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.shell-main {
+  max-width: 40rem;
+  margin: var(--space-xl) auto;
+  padding: 0 var(--space-md);
+}
+
+.shell-title {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.shell-actions {
+  margin-top: var(--space-lg);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}

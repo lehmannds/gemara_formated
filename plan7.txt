@@ -1,0 +1,93 @@
+Plan 7 – Fix three editor bugs
+================================
+
+## Bug 1: Moving the cursor moves words between lines
+
+**Root cause:** The cursor bar (`<span class="gmr-cursor-bar">`) is inserted as an
+inline-block element into the normal document flow via `insertBefore`. Its 2 px width
+participates in the line's inline-flow calculation, so adding/removing it at different
+positions can push a word past the line-break threshold and cause visible word-reflow.
+
+**Fix (css/editor.css + js/editor.js):**
+- Make the cursor bar `position: absolute` so it doesn't participate in flow.
+- Wrap or position it relative to the target word span.
+- Give `.gmr-word` `position: relative` so the cursor bar can anchor to the word's
+  start edge without affecting layout.
+- In `updateHighlight()`, instead of `parentNode.insertBefore`, append the cursor bar
+  inside the target word (at the start) and position it with `left: 0` (or `right: 0`
+  in RTL). For the "cursor at end" case, append inside the last word and position at
+  the end edge.
+
+Files: js/editor.js (updateHighlight), css/editor.css (.gmr-cursor-bar, .gmr-word).
+
+## Bug 2: Cannot press Enter many times (consecutive blank lines invisible)
+
+**Root cause:** Each break produces a new `<div class="gmr-line">` during rendering.
+Consecutive breaks produce empty divs with 0 px intrinsic height. CSS vertical margin
+collapsing merges all their `margin-bottom: 0.3rem` values into a single 0.3rem gap,
+so pressing Enter 2, 3, or 10 times looks the same as pressing it once.
+
+**Fix (js/renderer.js or css/editor.css):**
+- In `renderLines`, when a line has `wordCount === 0`, insert a `<br>` or zero-width
+  space inside the div so it has intrinsic height and margins no longer collapse.
+- Alternatively, change `.gmr-line` to use `min-height: 1em` for empty lines, or add
+  padding-top/bottom (padding doesn't collapse like margins).
+
+Chosen approach: in renderLines, after creating the `lineEl`, if
+`line.wordCount === 0`, append a `<br>` element. Simple, correct, and prevents
+margin collapse.
+
+Files: js/renderer.js (renderLines loop).
+
+## Bug 3: Infinite scroller too fast / words blink
+
+### 3a – Scrolls too fast
+**Root cause:** The estimated `LINE_HEIGHT = 44` px used for spacer sizing may not
+match actual rendered line heights (Hebrew text with 1.4 rem font + 2.2 line-height
++ margins). If the estimate is too large, the scroll range covers fewer visual lines
+than expected, making each scroll-wheel tick jump farther through the content.
+
+**Fix:**
+- Measure actual line height dynamically after the first render rather than hard-coding
+  44 px. After the first `onRangeChange` renders some lines, measure the average height
+  of a `.gmr-line` element and call `setTotalLines` again with the corrected height.
+- As a simpler approach: recalculate LINE_HEIGHT from CSS values. 1.4rem ≈ 22.4px,
+  × 2.2 line-height = ~49px, + 0.3rem margin ≈ 54px. So 44 is likely too low. But
+  hard-coding is fragile.
+- Chosen approach: after the first virtual render, measure mean actual line height from
+  the rendered `.gmr-line` elements and update the virtual-scroll instance's line
+  height. Also expose a `setLineHeight` method on virtualScroll.
+
+### 3b – Words blink
+**Root cause:** `onVirtualRangeChange` calls `renderLines` which does
+`container.innerHTML = ''` (full DOM nuke) on every scroll tick. Even tiny scroll
+movements that change the range by one line destroy and rebuild every visible element.
+No `requestAnimationFrame` throttle exists on the scroll handler, so this runs on
+every native scroll event at 60+ Hz.
+
+**Fix (js/virtual-scroll.js):**
+- Throttle `onScroll` with `requestAnimationFrame` so update runs at most once per
+  frame.
+- Avoid the full innerHTML nuke: diff the old and new ranges and only add/remove lines
+  at the edges. This is the key fix for blinking. Since lines are keyed by index, we
+  can prepend/append new line elements and remove ones that scrolled out of range.
+
+**Fix (js/renderer.js):**
+- Export a helper `renderSingleLine(line, options)` that returns a `<div class="gmr-line">`
+  element and a Map of wordElements for that line.
+- In `onVirtualRangeChange`, use incremental DOM updates instead of full re-render.
+
+## Files touched
+
+| File | Changes |
+|------|---------|
+| js/editor.js | Cursor bar logic (updateHighlight) |
+| js/virtual-scroll.js | rAF throttle, incremental range updates, setLineHeight |
+| js/renderer.js | Empty-line <br>, export renderSingleLine |
+| css/editor.css | Cursor bar absolute positioning, .gmr-word position:relative |
+
+## Acceptance criteria
+
+1. Moving cursor (ArrowLeft / ArrowRight / click) does NOT cause words to jump lines.
+2. Pressing Enter 5 times in a row produces 5 visible blank lines.
+3. Scrolling through a large document is smooth — no blinking, no overshooting.

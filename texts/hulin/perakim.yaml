@@ -1,0 +1,51 @@
+perakim:
+  - perek: 1
+    start_page: 2.1
+    offset: 0
+    title: הכל שוחטין
+  - perek: 2
+    start_page: 27.1
+    offset: 0
+    title: שני
+  - perek: 3
+    start_page: 42.1
+    offset: 64
+    title: שלישי
+  - perek: 4
+    start_page: 68.1
+    offset: 0
+    title: רביעי
+  - perek: 5
+    start_page: 78.1
+    offset: 258
+    title: חמישי
+  - perek: 6
+    start_page: 83.2
+    offset: 98
+    title: שישי
+  - perek: 7
+    start_page: 89.2
+    offset: 73
+    title: שביעי
+  - perek: 8
+    start_page: 103.2
+    offset: 1210
+    title: שמיני
+  - perek: 9
+    start_page: 117.2
+    offset: 228
+    title: תשיעי
+  - perek: 10
+    start_page: 130.1
+    offset: 0
+    title: עשירי
+  - perek: 11
+    start_page: 135.1
+    offset: 0
+    title: אחד עשר
+  - perek: 12
+    start_page: 138.2
+    offset: 177
+    title: שנים עשרה
+
+last_page: 142.1

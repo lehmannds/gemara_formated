@@ -1,0 +1,50 @@
+labels:
+  - name: speaker
+    collapsible: false
+    newline_before: true
+    args: []
+
+  - name: question
+    collapsible: false
+    newline_before: true
+    args:
+      - name: id
+        type: text
+        required: false
+        auto: true
+
+  - name: answer
+    collapsible: false
+    newline_before: true
+    args:
+      - name: to
+        type: text
+        required: true
+
+  - name: refers-to
+    collapsible: false
+    args: []
+
+  - name: group
+    collapsible: true
+    args:
+      - name: label
+        type: text
+        required: false
+      - name: default_collapsed
+        type: boolean
+        required: false
+        default: true
+
+  - name: mishna
+    collapsible: false
+    newline_before: true
+    args: []
+
+  - name: page
+    collapsible: false
+    newline_before: false
+    args:
+      - name: value
+        type: text
+        required: true
