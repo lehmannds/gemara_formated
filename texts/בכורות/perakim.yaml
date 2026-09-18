@@ -1,0 +1,39 @@
+perakim:
+  - perek: 1
+    start_page: 2.1
+    offset: 0
+    title: ראשון
+  - perek: 2
+    start_page: 13.1
+    offset: 696
+    title: שני
+  - perek: 3
+    start_page: 19.2
+    offset: 365
+    title: שלישי
+  - perek: 4
+    start_page: 26.2
+    offset: 589
+    title: רביעי
+  - perek: 5
+    start_page: 31.1
+    offset: 1189
+    title: חמישי
+  - perek: 6
+    start_page: 37.1
+    offset: 1330
+    title: שישי
+  - perek: 7
+    start_page: 43.1
+    offset: 53
+    title: שביעי
+  - perek: 8
+    start_page: 46.1
+    offset: 307
+    title: שמיני
+  - perek: 9
+    start_page: 53.1
+    offset: 0
+    title: תשיעי
+
+last_page: 61.1
