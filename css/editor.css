@@ -38,6 +38,20 @@
   border-radius: 3px;
 }
 
+.editor-toolbar input[type="text"] {
+  padding: 0.4rem;
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.toolbar-separator {
+  width: 1px;
+  background: #ccc;
+  align-self: stretch;
+  margin: 0 0.25rem;
+}
+
 .editor-status {
   direction: ltr;
   font-size: 0.8rem;
@@ -48,8 +62,9 @@
 
 /* Text display area */
 .gmr-rendered {
-  font-size: 1.4rem;
-  line-height: 2.2;
+  --line-height-px: 34;
+  font-size: 1.2rem;
+  line-height: 1.6;
   padding: 1rem;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -73,6 +88,7 @@
   text-align: justify;
   text-align-last: start;
   position: relative;
+  padding-inline-start: 2.5em;
   padding-inline-end: 4.5em;
 }
 
@@ -92,8 +108,8 @@
    overflow:hidden guarantees the height never exceeds LINE_HEIGHT, so the
    total content height always equals totalLines * lineHeight — no jumps. */
 .gmr-rendered .vs-content .gmr-line {
-  height: 50px;
-  line-height: 50px;
+  height: calc(var(--line-height-px) * 1px);
+  line-height: calc(var(--line-height-px) * 1px);
   overflow: hidden;
   margin-bottom: 0;
 }
@@ -117,10 +133,32 @@
   outline-offset: 1px;
 }
 
-/* Tag colors */
+/* Tag styles */
 .tag-speaker {
-  background: #e8f5e9;
-  border-bottom: 2px solid #4caf50;
+  font-family: 'Frank Ruhl Libre', 'Noto Serif Hebrew', 'David', serif;
+  font-style: italic;
+  color: #2e7d32;
+}
+
+.tag-mishna {
+  font-family: "David Libre", serif;
+  letter-spacing: 0.03em;
+}
+
+/* Mishna lines get extra indentation on both sides */
+.gmr-line:has(.tag-mishna) {
+  padding-inline-start: 4em;
+  padding-inline-end: 6em;
+}
+
+.tag-verse {
+  color: #5d4037;
+  font-style: italic;
+}
+
+.tag-page {
+  color: #1565c0;
+  font-size: 0.85em;
 }
 
 .tag-question {
@@ -143,9 +181,10 @@
   border-bottom: 2px solid #9c27b0;
 }
 
-.tag-mishna {
-  background: #fff8e1;
-  border-bottom: 2px solid #fbc02d;
+.tag-mishna\+gemara {
+}
+
+.tag-gemara {
 }
 
 /* Gap cursor bar — absolutely positioned so it never affects word reflow */
@@ -180,10 +219,15 @@
 
 /* When selected overrides tag color */
 .gmr-selected.tag-speaker,
+.gmr-selected.tag-mishna,
+.gmr-selected.tag-verse,
+.gmr-selected.tag-page,
 .gmr-selected.tag-question,
 .gmr-selected.tag-answer,
 .gmr-selected.tag-refers-to,
-.gmr-selected.tag-group {
+.gmr-selected.tag-group,
+.gmr-selected.tag-gemara,
+.gmr-selected.tag-mishna\+gemara {
   background: #cce5ff !important;
 }
 
@@ -285,16 +329,30 @@
   position: relative;
 }
 
+/* Group gutter — fixed column on the start (right in RTL) side of each line */
+.gmr-group-gutter {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
 .gmr-group-toggle {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: 1px solid #ccc;
   border-radius: 3px;
   cursor: pointer;
-  font-size: 0.7rem;
-  padding: 0.1em 0.3em;
-  margin-inline-end: 0.3em;
-  vertical-align: middle;
+  font-size: 0.65rem;
+  padding: 0.15em 0.25em;
+  margin: 0;
   line-height: 1;
   color: #666;
 }

@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gemara Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./css/tokens.css">
   <link rel="stylesheet" href="./css/editor.css">
   <link rel="stylesheet" href="./css/autocomplete.css">
@@ -35,6 +38,11 @@
       <button id="btn-remove-tag">Remove Tag</button>
       <label><input type="checkbox" id="chk-hover" checked> Hover Tags</label>
       <button id="btn-save">Save</button>
+      <span class="toolbar-separator"></span>
+      <input type="text" id="search-input" placeholder="Search text…" dir="rtl" style="width:160px">
+      <button id="btn-search-prev">&#9650;</button>
+      <button id="btn-search-next">&#9660;</button>
+      <span id="search-status" style="font-size:0.85em;color:#666;min-width:60px;display:inline-block"></span>
     </div>
 
     <div id="editor-container"></div>
@@ -189,10 +197,45 @@
       return s;
     }
 
+    /** Tag names with `show_on_hover: true` in labels.yaml. */
+    function buildShowOnHoverTags() {
+      const s = new Set();
+      for (const l of labelDefs) {
+        if (l.show_on_hover === true) s.add(l.name);
+      }
+      return s;
+    }
+
+    /** Tag names with `removable: false` in labels.yaml. */
+    function buildNonRemovableTags() {
+      const s = new Set();
+      for (const l of labelDefs) {
+        if (l.removable === false) s.add(l.name);
+      }
+      return s;
+    }
+
+    /** Tag names with `positional: true` — zero-wordCount markers like page, verse. */
+    function buildPositionalTags() {
+      const s = new Set();
+      for (const l of labelDefs) {
+        if (l.positional === true) s.add(l.name);
+      }
+      return s;
+    }
+
+    /** Tag names the user can manually apply. */
+    function buildAddableTags() {
+      return TAG_TYPES.filter(name => {
+        const def = labelDefs.find(l => l.name === name);
+        return !def || def.user_addable !== false;
+      });
+    }
+
     function populateTagSelect() {
       const sel = document.getElementById('tag-select');
       sel.innerHTML = '';
-      for (const name of TAG_TYPES) {
+      for (const name of buildAddableTags()) {
         const opt = document.createElement('option');
         opt.value = name;
         opt.textContent = name;
@@ -316,6 +359,9 @@
       editor = createEditor(container, nodes, {
         newlineBeforeExclusions: buildNewlineBeforeExclusions(),
         collapsibleTags: buildCollapsibleTags(),
+        showOnHoverTags: buildShowOnHoverTags(),
+        nonRemovableTags: buildNonRemovableTags(),
+        positionalTags: buildPositionalTags(),
         useVirtualScroll: true,
       });
       editor.setContextMenuHandler(onContextMenu);
@@ -459,7 +505,7 @@
         items.push(
           {
             label: 'Apply Tag',
-            children: TAG_TYPES.map(t => ({
+            children: buildAddableTags().map(t => ({
               label: t,
               action: () => applyTagWithFlow(t),
             })),
@@ -469,6 +515,27 @@
           { label: 'Outdent <<', action: () => editor.insertIndent('out') },
         );
 
+        // "Continue tag X" — extend a nearby preceding tag to cover up to here
+        const continuable = editor.findContinuableTags(wordIdx);
+        if (continuable.length > 0) {
+          items.push({
+            label: 'Continue Tag',
+            children: continuable.map(t => {
+              const propsStr = Object.entries(t.props).map(([k,v]) => `${k}=${v}`).join(' ');
+              const label = propsStr ? `${t.tag} (${propsStr})` : t.tag;
+              return {
+                label,
+                action: () => {
+                  const target = editor.getSelection()
+                    ? Math.max(editor.getSelection().start, editor.getSelection().end)
+                    : wordIdx;
+                  editor.continueTag(t.nodeIndex, target);
+                },
+              };
+            }),
+          });
+        }
+
         if (tagsOnWord.length > 0) {
           items.push({
             label: 'Edit Tag',
@@ -477,13 +544,16 @@
               action: () => editExistingTag(t),
             })),
           });
-          items.push({
-            label: 'Remove Tag',
-            children: tagsOnWord.map(t => ({
-              label: t.tag,
-              action: () => editor.removeTag(),
-            })),
-          });
+          const removableTags = tagsOnWord.filter(t => !editor.nonRemovableTags.has(t.tag));
+          if (removableTags.length > 0) {
+            items.push({
+              label: 'Remove Tag',
+              children: removableTags.map(t => ({
+                label: t.tag,
+                action: () => editor.removeTag(),
+              })),
+            });
+          }
           items.push({
             label: 'End tag before selection (strip tail)',
             children: tagsOnWord.map(t => ({
@@ -586,6 +656,32 @@
     });
 
     document.getElementById('btn-save').addEventListener('click', saveText);
+
+    // ─── Search wiring ────────────────────────────────────────
+    const searchInput = document.getElementById('search-input');
+    const searchStatus = document.getElementById('search-status');
+
+    function doSearch(direction) {
+      if (!editor) return;
+      const result = editor.searchText(searchInput.value.trim(), direction);
+      if (result) {
+        searchStatus.textContent = `${result.index} / ${result.total}`;
+      } else {
+        searchStatus.textContent = searchInput.value.trim() ? 'Not found' : '';
+      }
+    }
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doSearch(e.shiftKey ? -1 : 1);
+      }
+    });
+    searchInput.addEventListener('input', () => {
+      searchStatus.textContent = '';
+    });
+    document.getElementById('btn-search-next').addEventListener('click', () => doSearch(1));
+    document.getElementById('btn-search-prev').addEventListener('click', () => doSearch(-1));
   </script>
 </body>
 </html>

@@ -794,18 +794,24 @@ describe('collapsible groups', () => {
     ]);
 
     const lines = [...el.querySelectorAll('.gmr-line')];
-    // The outer group's toggle sits on its own (top) line.
     const outerToggle = el.querySelector('.gmr-group-toggle[data-node-index="0"]');
     const innerToggle = el.querySelector('.gmr-group-toggle[data-node-index="2"]');
     assert.ok(outerToggle && innerToggle, 'both toggles render');
 
+    // Toggles live in a gutter element
+    assert.ok(outerToggle.closest('.gmr-group-gutter'), 'outer toggle is in gutter');
+    assert.ok(innerToggle.closest('.gmr-group-gutter'), 'inner toggle is in gutter');
+
     const lineOf = (node) => node.closest('.gmr-line');
-    const indentOf = (line) => parseFloat(line.style.marginInlineStart) || 0;
 
     const outerLine = lineOf(outerToggle);
     const innerLine = lineOf(innerToggle);
     assert.notEqual(outerLine, innerLine, 'inner group is on a different line from the outer toggle');
-    assert.ok(indentOf(innerLine) > indentOf(outerLine), 'inner group line is indented deeper than the outer toggle');
+
+    // Grouping does not affect indentation
+    const indentOf = (line) => parseFloat(line.style.marginInlineStart) || 0;
+    assert.equal(indentOf(outerLine), 0, 'outer line has no group indent');
+    assert.equal(indentOf(innerLine), 0, 'inner line has no group indent');
     ed.destroy();
   });
 
@@ -836,10 +842,11 @@ describe('collapsible groups', () => {
     ed.toggleGroup(6);
 
     let summaries = summaryLines();
-    // Two inner summaries, each on its own line, both indented past the outer toggle.
+    // Two inner summaries, each on its own line, no hierarchy indent.
     assert.deepEqual(summaries.map(s => s.text), ['IN1', 'IN2']);
     const outerLine = el.querySelector('.gmr-group-toggle[data-node-index="0"]').closest('.gmr-line');
-    assert.ok(summaries.every(s => s.indent > indentOf(outerLine)), 'inner groups indented deeper than outer');
+    assert.equal(indentOf(outerLine), 0, 'outer group line has no indent');
+    assert.ok(summaries.every(s => s.indent === 0), 'inner groups have no hierarchy indent');
     // Each inner summary is on a distinct line (no garble / pile-up).
     const in1Line = el.querySelector('.gmr-group[data-node-index="1"]').closest('.gmr-line');
     const in2Line = el.querySelector('.gmr-group[data-node-index="6"]').closest('.gmr-line');

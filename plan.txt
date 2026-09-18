@@ -1,52 +1,51 @@
-# Plan: Add "page" tag with gutter + auto-mark script
+## Goal
+Move the expand/collapse toggle for collapsible groups (e.g. group, mishna+gemara)
+out of the inline text flow and into a fixed gutter on the right side (the "start"
+side in RTL). Text indentation must NOT be affected by group nesting at all.
 
-## Part 1: Page tag feature
+## Current behaviour
+- `renderer.js` creates the toggle button (`<button class="gmr-group-toggle">`)
+  inline inside the line, before the `<span class="gmr-group">`.
+- `prepareLines` computes hierarchy-based indentation for lines that contain a
+  collapsible tag (counting expanded ancestors).
+- `editor.css` styles the toggle as `display: inline-block` with a small margin.
 
-### labels.yaml
-Add `page` with `value` arg (text, required). Not collapsible, no newline.
+## Desired behaviour
+- The toggle appears in a **gutter column on the right** (inline-start in RTL),
+  similar to the existing page gutter on the left (inline-end in RTL).
+- The toggle gutter is positionally independent of the text — it does not push
+  words or affect indentation.
+- Grouping no longer causes any additional indentation of the actual text content.
 
-### editor.js — `insertPage(value)`
-Insert `{ type: 'tag', tag: 'page', props: { value }, wordCount: 0 }` at
-cursor position. Expose in API.
+## Files to change
 
-### renderer.js — track page per line
-In `prepareLines`, track `currentPage`. When a page tag (wordCount 0) is
-encountered, set currentPage. Store `page` on the line where it appears.
-In `renderLines`, prepend a `.gmr-page-gutter` element to lines with a page.
+### css/editor.css
+1. Add a `.gmr-group-gutter` style: absolute-positioned on the inline-start side
+   of `.gmr-line`, mirroring how `.gmr-page-gutter` is on inline-end.
+2. Add `padding-inline-start` to `.gmr-line` to make room for the group gutter.
+3. Update `.gmr-group-toggle` to remove inline-block/margin styles; the toggle
+   now lives inside the gutter.
+4. Nest multiple toggles (for stacked groups) vertically or with small offsets
+   inside the gutter.
 
-### editor.html — wire UI
-Special-case "page" in `applyTagWithFlow` to prompt for value and call
-`insertPage`.
+### js/renderer.js
+1. In `renderLines` and `renderSingleLine`: instead of appending the toggle
+   inline before the group span, create a gutter element
+   (`<span class="gmr-group-gutter">`) and append the toggle inside it. Attach
+   the gutter to the lineEl (absolute-positioned).
+2. Remove `marginInlineStart` based on group hierarchy indentation. Lines should
+   keep only the user-applied `>>` `<<` indent level, not the collapsible-nesting
+   depth.
 
-### css/editor.css — gutter style
-`.gmr-page-gutter` in the margin.
-
-## Part 2: Auto-mark script
-
-### Approach
-Node script `scripts/mark-pages.js`:
-1. Read `perakim.yaml` for start_page/offset per perek.
-2. For each perek, load consecutive page files from start_page onwards.
-3. Extract plain words from each page file (strip `)}}`-like markers).
-4. Parse the perek markup, extract plain text words.
-5. Match: starting from the perek's start_page offset, find where each
-   subsequent page's first words appear in the perek text (sequential search).
-6. Insert `[page value=X {0}]` at matching positions in the perek markup.
-7. Write updated perek files.
-
-### Gimatria conversion
-Convert daf number + amud to Hebrew (e.g. 42.1 → "מב א", 42.2 → "מב ב").
-
-### Run on Hulin
-`node scripts/mark-pages.js texts/hulin`
-
-## Files
-- `labels.yaml`
-- `js/editor.js`, `js/renderer.js`, `editor.html`, `css/editor.css`
-- `scripts/mark-pages.js` (new)
+### js/renderer.js – prepareLines
+1. For lines that contain a collapsible tag, stop computing `effectiveIndent`
+   from `expandedAncestors`. Use the normal `indentLevel` (from `>>` / `<<`)
+   for all lines equally.
 
 ## Acceptance criteria
-- Page markers render with gutter.
-- Script correctly identifies page boundaries and inserts markers.
-- Perek files round-trip cleanly (serialize → parse → serialize).
-- Existing tests pass.
+- Expand/collapse toggles render in a right-side gutter, outside the text flow.
+- Clicking the toggle still expands/collapses the group.
+- Text indentation is identical whether a word is inside a group or not (only
+  explicit `>>` / `<<` indentation applies).
+- Context menu and selection on collapsed group summaries still work.
+- No visual regressions on page gutter (left side in RTL).

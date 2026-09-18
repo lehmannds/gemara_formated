@@ -107,10 +107,15 @@ export function prepareLines(nodes, options = {}) {
   let collapsedDepth = 0;
   // Extra indentation from currently-open EXPANDED groups that own a block.
   let groupDepth = 0;
+  // How many collapsible groups we're currently nested inside (for hierarchy indentation)
+  let collapsibleNestingDepth = 0;
   // True when the current line was started by an implicit break (newline_before
   // or groupNeedsOwnLine). A subsequent explicit break node is absorbed to
   // avoid a double blank line; otherwise the break is honoured.
   let startedByImplicitBreak = false;
+  // True after flushing when a collapsed group ended — absorb breaks so we
+  // don't render blank lines between consecutive collapsed sections.
+  let justFlushedCollapsed = false;
   // Page tracking: `currentPage` holds the active page value for the gutter.
   // `pendingPage` is set when a page tag is encountered; on the next flush it
   // becomes the new currentPage. `pageStart` marks the first line of a page.
@@ -124,9 +129,10 @@ export function prepareLines(nodes, options = {}) {
       pendingPage = null;
       isPageStart = true;
     }
+    const effectiveIndent = indentLevel;
     const line = {
       nodes: currentLineNodes,
-      indentLevel: indentLevel + groupDepth,
+      indentLevel: effectiveIndent,
       wordStart: wordIndex - currentLineNodes.filter(n => n.type === 'text').length,
       wordCount: currentLineNodes.filter(n => n.type === 'text').length,
       activeTags: activeTags.map(t => ({ ...t })),
@@ -144,6 +150,7 @@ export function prepareLines(nodes, options = {}) {
 
     switch (node.type) {
       case 'indent':
+        justFlushedCollapsed = false;
         if (collapsedDepth === 0) {
           if (node.direction === 'in') indentLevel++;
           else if (indentLevel > 0) indentLevel--;
@@ -155,6 +162,9 @@ export function prepareLines(nodes, options = {}) {
         // Inside a collapsed group, treat breaks as part of the same line
         if (collapsedDepth > 0) {
           currentLineNodes.push({ ...node, _nodeIndex: ni });
+        } else if (justFlushedCollapsed) {
+          // Absorb breaks right after a collapsed group ended to prevent
+          // blank lines between consecutive collapsed sections.
         } else if (currentLineNodes.some(n => n.type === 'text') || currentLineNodes.length === 0) {
           flushLine();
           startedByImplicitBreak = false;
@@ -168,6 +178,7 @@ export function prepareLines(nodes, options = {}) {
         break;
 
       case 'tag': {
+        justFlushedCollapsed = false;
         // Page markers (wordCount 0) don't span words — record the value
         // so the next flushed line carries it for gutter rendering.
         if (node.tag === 'page' && node.wordCount === 0) {
@@ -190,24 +201,33 @@ export function prepareLines(nodes, options = {}) {
           collapsedDepth === 0 &&
           !newlineExclusions.has(node.tag) &&
           currentLineNodes.some(n => n.type === 'text');
-        // Every visible collapsible group starts on its own line so that each
-        // group (top-level or nested) is rendered on its own row.
-        const groupNeedsOwnLine =
-          visibleChrome &&
-          currentLineNodes.some(n => n.type === 'text' || n.type === 'tag');
+        // Every visible collapsible group must start on its own line —
+        // flush if there's anything at all on the current line.
+        const groupNeedsOwnLine = visibleChrome && currentLineNodes.length > 0;
         if (wantsNewlineBefore || groupNeedsOwnLine) {
           flushLine();
           startedByImplicitBreak = true;
         }
 
+        // Only increment collapsedDepth for tags that are directly visible
+        // (not already hidden inside a collapsed ancestor). Inner tags of
+        // a collapsed parent are invisible and shouldn't affect depth.
+        const effectivelyCollapsed = isCollapsedHere && collapsedDepth === 0;
+        const hiddenByAncestor = collapsedDepth > 0 && !effectivelyCollapsed;
         activeTags.push({
           tag: node.tag,
           props: node.props,
           remaining: node.wordCount,
           nodeIndex: ni,
           _ownsBlock: ownsBlock,
+          _isCollapsible: isCollapsible,
+          _effectivelyCollapsed: effectivelyCollapsed,
+          _hiddenByAncestor: hiddenByAncestor,
         });
-        if (isCollapsedHere) {
+        if (isCollapsible) {
+          collapsibleNestingDepth++;
+        }
+        if (effectivelyCollapsed) {
           collapsedDepth++;
         }
         currentLineNodes.push({ ...node, _nodeIndex: ni });
@@ -222,6 +242,7 @@ export function prepareLines(nodes, options = {}) {
 
       case 'text': {
         startedByImplicitBreak = false;
+        justFlushedCollapsed = false;
         currentLineNodes.push({ ...node, _nodeIndex: ni, _wordIndex: wordIndex });
         wordIndex++;
         // Decrement active tags
@@ -229,21 +250,31 @@ export function prepareLines(nodes, options = {}) {
           if (t.remaining > 0) t.remaining--;
         }
         let blocksClosed = 0;
+        let collapsedClosed = false;
+        let collapsiblesClosed = 0;
+
         for (let i = activeTags.length - 1; i >= 0; i--) {
           if (activeTags[i].remaining <= 0) {
-            if (collapsibleTags.has(activeTags[i].tag) && collapsedGroups.has(activeTags[i].nodeIndex)) {
+            if (activeTags[i]._effectivelyCollapsed) {
               collapsedDepth--;
+              collapsedClosed = true;
             }
+            if (activeTags[i]._isCollapsible) collapsiblesClosed++;
             if (activeTags[i]._ownsBlock) blocksClosed++;
             activeTags.splice(i, 1);
           }
         }
-        // A block group's last word ends its block: flush at the deeper depth,
-        // then drop the indentation so following siblings render one level up.
+
+        // Flush BEFORE adjusting nesting depth so collapsed summary lines
+        // get the correct hierarchy-based indentation.
         if (blocksClosed > 0) {
           flushLine();
           groupDepth = Math.max(0, groupDepth - blocksClosed);
+        } else if (collapsedClosed && collapsedDepth === 0) {
+          flushLine();
+          justFlushedCollapsed = true;
         }
+        collapsibleNestingDepth = Math.max(0, collapsibleNestingDepth - collapsiblesClosed);
         break;
       }
     }
@@ -436,13 +467,18 @@ export function renderLines(lines, startLine, endLine, container, options = {}) 
               toggle.textContent = collapsed ? '◀' : '▼';
               toggle.type = 'button';
 
-              const shellParent =
-                findLastExpandedCollapsible(activeGroups)?.element ?? lineEl;
-              shellParent.appendChild(toggle);
-              shellParent.appendChild(groupEl);
+              let groupGutter = lineEl.querySelector('.gmr-group-gutter');
+              if (!groupGutter) {
+                groupGutter = document.createElement('span');
+                groupGutter.className = 'gmr-group-gutter';
+                lineEl.appendChild(groupGutter);
+              }
+              groupGutter.appendChild(toggle);
+              lineEl.appendChild(groupEl);
 
               activeGroups.push({
                 nodeIndex: node._nodeIndex,
+                tag: node.tag,
                 element: groupEl,
                 remaining: node.wordCount,
                 collapsed,
@@ -509,7 +545,12 @@ export function renderLines(lines, startLine, endLine, container, options = {}) 
             if (g.remaining > 0) g.remaining--;
             if (g.remaining <= 0) {
               if (g.collapsed && g.summaryEl) {
-                const labelText = g.label || g.words.slice(0, 10).join(' ') + (g.words.length > 10 ? '…' : '');
+                let labelText;
+                if (g.tag === 'mishna+gemara') {
+                  labelText = g.label || g.words.slice(0, 8).join(' ') + (g.words.length > 8 ? '… גמ\'' : '');
+                } else {
+                  labelText = g.label || g.words.slice(0, 10).join(' ') + (g.words.length > 10 ? '…' : '');
+                }
                 g.summaryEl.textContent = labelText;
               }
               activeGroups.splice(gi, 1);
@@ -601,13 +642,18 @@ export function renderSingleLine(line, allLines, lineIndex, options = {}) {
             toggle.textContent = collapsed ? '◀' : '▼';
             toggle.type = 'button';
 
-            const shellParent =
-              findLastExpandedCollapsible(activeGroups)?.element ?? lineEl;
-            shellParent.appendChild(toggle);
-            shellParent.appendChild(groupEl);
+            let groupGutter = lineEl.querySelector('.gmr-group-gutter');
+            if (!groupGutter) {
+              groupGutter = document.createElement('span');
+              groupGutter.className = 'gmr-group-gutter';
+              lineEl.appendChild(groupGutter);
+            }
+            groupGutter.appendChild(toggle);
+            lineEl.appendChild(groupEl);
 
             activeGroups.push({
               nodeIndex: node._nodeIndex,
+              tag: node.tag,
               element: groupEl,
               remaining: node.wordCount,
               collapsed,
@@ -674,7 +720,12 @@ export function renderSingleLine(line, allLines, lineIndex, options = {}) {
           if (g.remaining > 0) g.remaining--;
           if (g.remaining <= 0) {
             if (g.collapsed && g.summaryEl) {
-              const labelText = g.label || g.words.slice(0, 10).join(' ') + (g.words.length > 10 ? '…' : '');
+              let labelText;
+              if (g.tag === 'mishna+gemara') {
+                labelText = g.label || g.words.slice(0, 8).join(' ') + (g.words.length > 8 ? '… גמ\'' : '');
+              } else {
+                labelText = g.label || g.words.slice(0, 10).join(' ') + (g.words.length > 10 ? '…' : '');
+              }
               g.summaryEl.textContent = labelText;
             }
             activeGroups.splice(gi, 1);

@@ -45,6 +45,9 @@ Thumbs.db
 tmp/
 temp/
 
+# Raw wikitext downloads (can be re-fetched)
+**/raw/
+
 # Package managers
 .pnp.*
 .yarn/*

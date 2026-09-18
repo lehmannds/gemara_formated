@@ -211,7 +211,7 @@ describe('render', () => {
     assert.equal(lines[1].querySelector('.gmr-word')?.textContent, 'b');
   });
 
-  it('expanded outer group renders its inner group on a deeper-indented line', () => {
+  it('expanded outer group renders its inner group on a separate line (no hierarchy indent)', () => {
     const nodes = [
       { type: 'tag', tag: 'group', props: {}, wordCount: 3 }, // outer, has inner group
       { type: 'text', value: 'a' },
@@ -226,11 +226,18 @@ describe('render', () => {
     const innerToggle = el.querySelector('.gmr-group-toggle[data-node-index="2"]');
     assert.ok(outerToggle && innerToggle);
 
+    // Toggles live in a gutter, not inline
+    assert.ok(outerToggle.closest('.gmr-group-gutter'), 'outer toggle is in gutter');
+    assert.ok(innerToggle.closest('.gmr-group-gutter'), 'inner toggle is in gutter');
+
     const outerLine = outerToggle.closest('.gmr-line');
     const innerLine = innerToggle.closest('.gmr-line');
-    const indentOf = (line) => parseFloat(line.style.marginInlineStart) || 0;
     assert.notEqual(outerLine, innerLine);
-    assert.ok(indentOf(innerLine) > indentOf(outerLine), 'inner group is indented deeper');
+
+    // Grouping no longer affects indentation
+    const indentOf = (line) => parseFloat(line.style.marginInlineStart) || 0;
+    assert.equal(indentOf(outerLine), 0, 'outer line has no group indent');
+    assert.equal(indentOf(innerLine), 0, 'inner line has no group indent');
   });
 });
 

@@ -12,7 +12,12 @@
  */
 export function getPerekFromUrl() {
   const hash = location.hash.slice(1); // strip leading '#'
-  return hash || null;
+  if (!hash) return null;
+  try {
+    return decodeURIComponent(hash);
+  } catch {
+    return hash;
+  }
 }
 
 /**

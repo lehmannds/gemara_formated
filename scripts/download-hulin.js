@@ -78,13 +78,57 @@ function extractGemara(wikitext) {
   text = text.replace(/<[^>]+>/g, '');
   // Strip [[link|display]] → display, [[link]] → link
   text = text.replace(/\[\[([^\]|]+\|)?([^\]]+)\]\]/g, '$2');
-  // Strip {{ templates }}
-  text = text.replace(/\{\{[^}]*\}\}/g, '');
+  // Process {{ templates }}: preserve person names, strip the rest
+  text = processTemplates(text);
   // Strip bold/italic markers
   text = text.replace(/'{2,}/g, '');
   // Collapse whitespace
   text = text.replace(/\s+/g, ' ').trim();
 
+  return text;
+}
+
+function processTemplates(text) {
+  let prev;
+  do {
+    prev = text;
+
+    text = text.replace(/\{\{(תנא|אמורא)\|[^|}]*\|([^{}]*)\}\}/g, (_, type, display) => {
+      const wc = display.trim().split(/\s+/).length;
+      return `[speaker type=${type} {${wc}}] ${display.trim()}`;
+    });
+    text = text.replace(/\{\{(תנא|אמורא)\|([^|}]*)\}\}/g, (_, type, name) => {
+      const wc = name.trim().split(/\s+/).length;
+      return `[speaker type=${type} {${wc}}] ${name.trim()}`;
+    });
+
+    text = text.replace(
+      /\{\{קטן\|\(?\{\{הפניה לפסוק\|([^|{}]*)\|([^{}]*)\}\}\)?\}\}/g,
+      (_, bookCh, verse) => {
+        const ref = (bookCh.trim() + ' ' + verse.trim()).replace(/ /g, '%20');
+        return `[verse ref=${ref} {0}]`;
+      }
+    );
+    text = text.replace(
+      /\{\{הפניה לפסוק\|([^|{}]*)\|([^{}]*)\}\}/g,
+      (_, bookCh, verse) => {
+        const ref = (bookCh.trim() + ' ' + verse.trim()).replace(/ /g, '%20');
+        return `[verse ref=${ref} {0}]`;
+      }
+    );
+    text = text.replace(
+      /\{\{ממ\|([^|{}]*)\|([^{}]*)\}\}/g,
+      (_, bookCh, verse) => {
+        const ref = (bookCh.trim() + ' ' + verse.trim()).replace(/ /g, '%20');
+        return `[verse ref=${ref} {0}]`;
+      }
+    );
+
+    text = text.replace(/\{\{מתני'[^{}]*\}\}/g, "מתני'");
+    text = text.replace(/\{\{(?:שוליים|שולייםלמטה|גמ'|קטן)[^{}]*\}\}/g, '');
+    text = text.replace(/\{\{[^{}]*\}\}/g, '');
+  } while (text !== prev);
+  text = text.replace(/\{\{|\}\}/g, '');
   return text;
 }
 

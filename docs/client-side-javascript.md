@@ -51,7 +51,7 @@ Markup syntax reference: [docs/markup-syntax.md](./markup-syntax.md). Details: [
 
 ### `renderer.js`
 
-- **`render(nodes, container, options?)`** — Builds DOM from AST. Each word becomes a `<span class="gmr-word">` with tag classes applied. Optional `newlineBeforeExclusions` (`Set<string>`): tags **not** in the set start a new logical line when the current line already has text (from `labels.yaml` via `newline_before: false`). Optional `collapsibleTags` (`Set<string>`): tags listed in `labels.yaml` as `collapsible: true` get a collapse toggle + summary. Each collapsible group renders on its own line; an **expanded** group that contains inner groups lays its content out as an indented block (toggle on its own line, each nested group on its own line indented one level deeper), so the hierarchy reads top-to-bottom. Returns `{ root, wordElements }`.
+- **`render(nodes, container, options?)`** — Builds DOM from AST. Each word becomes a `<span class="gmr-word">` with tag classes applied. Optional `newlineBeforeExclusions` (`Set<string>`): tags **not** in the set start a new logical line when the current line already has text (from `labels.yaml` via `newline_before: false`). Optional `collapsibleTags` (`Set<string>`): tags listed in `labels.yaml` as `collapsible: true` get a collapse toggle + summary. Collapse toggles render in a right-side gutter (`.gmr-group-gutter`, positioned at `inset-inline-start` of each line) rather than inline with the text, keeping text indentation unaffected by group nesting. Only explicit `>>` / `<<` indentation shifts text. Returns `{ root, wordElements }`.
 
 Details: [docs/js/renderer.md](./js/renderer.md).
 

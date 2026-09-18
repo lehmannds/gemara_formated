@@ -11,7 +11,7 @@ Living documentation of **what exists in this repository** and **how it was buil
 | `texts/` | `.gmr` markup files (annotated Gemara texts). | Syntax: [docs/markup-syntax.md](./markup-syntax.md). |
 | `server.js` | Local Node.js dev server (static files + REST API for `.gmr` files). | Run with `node server.js`. |
 | `editor.html` | Gemara editor page (load, annotate, save texts). Perek selector with autocomplete filters by chapter name or number. | Served by `server.js` at `/`. |
-| `labels.yaml` | Label (tag type) definitions: name, collapsible flag, `newline_before` (default treat as true; `false` keeps the tag on the same line after prior text), typed arguments. | Served by `GET /api/labels`. |
+| `labels.yaml` | Label (tag type) definitions: name, collapsible flag, `newline_before` (default treat as true; `false` keeps the tag on the same line after prior text), typed arguments. Collapsible tags include `group` and `mishna` (whole mishna+gemara sections). | Served by `GET /api/labels`. |
 | `index.html` | Minimal shell to exercise table + popup. | Open via a local static server. |
 
 ## How it was built

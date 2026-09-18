@@ -67,7 +67,9 @@ function pageToHebrew(pageStr) {
 const NOISE_TOKENS = new Set([')}}', "'", '"', '(', ')']);
 
 function extractWordsFromPageFile(text) {
-  return text.split(/\s+/)
+  const TAG_RE = /\[[^\]]*\{\d+\}\]/g;
+  const cleaned = text.replace(TAG_RE, ' ').replace(/>>/g, ' ').replace(/<</g, ' ');
+  return cleaned.split(/\s+/)
     .filter(w => w.length > 0 && !NOISE_TOKENS.has(w));
 }
 

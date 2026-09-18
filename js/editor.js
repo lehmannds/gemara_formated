@@ -17,7 +17,12 @@ import { createVirtualScroll } from './virtual-scroll.js';
  */
 
 const VIRTUAL_THRESHOLD = 500;
-const LINE_HEIGHT = 50;
+const DEFAULT_LINE_HEIGHT = 34;
+
+function getLineHeight(container) {
+  const val = getComputedStyle(container).getPropertyValue('--line-height-px');
+  return val ? parseInt(val, 10) : DEFAULT_LINE_HEIGHT;
+}
 
 /**
  * Create an editor instance.
@@ -27,6 +32,9 @@ const LINE_HEIGHT = 50;
  * @param {object} [options]
  * @param {Set<string>} [options.newlineBeforeExclusions]
  * @param {Set<string>} [options.collapsibleTags]
+ * @param {Set<string>} [options.showOnHoverTags] - only show tooltip for these tag names
+ * @param {Set<string>} [options.nonRemovableTags] - tags that cannot be removed by the user
+ * @param {Set<string>} [options.positionalTags] - zero-wordCount marker tags (e.g. page, verse)
  * @param {boolean} [options.useVirtualScroll=true]
  * @returns {EditorInstance}
  */
@@ -34,6 +42,9 @@ export function createEditor(container, initialNodes, options = {}) {
   const newlineBeforeExclusions = options.newlineBeforeExclusions;
   const collapsibleTags =
     options.collapsibleTags instanceof Set ? options.collapsibleTags : new Set(['group']);
+  const showOnHoverTags = options.showOnHoverTags instanceof Set ? options.showOnHoverTags : null;
+  const nonRemovableTags = options.nonRemovableTags instanceof Set ? options.nonRemovableTags : new Set();
+  const positionalTags = options.positionalTags instanceof Set ? options.positionalTags : new Set();
   const useVirtualScroll = options.useVirtualScroll !== false;
 
   function rendererOpts() {
@@ -206,26 +217,50 @@ export function createEditor(container, initialNodes, options = {}) {
    * it cannot cause a loop.  A safety factor leaves room for justification.
    */
   function measureCharsPerLine() {
+    const sample = 'אבגדהוזחטיכלמנסעפצקרשת ';
+    const text = sample.repeat(6);
+
+    // Measure with the default font
     const probe = document.createElement('span');
     probe.style.visibility = 'hidden';
     probe.style.position = 'absolute';
     probe.style.whiteSpace = 'nowrap';
     probe.style.pointerEvents = 'none';
-    // Representative Hebrew sample.
-    const sample = 'אבגדהוזחטיכלמנסעפצקרשת ';
-    probe.textContent = sample.repeat(6);
+    probe.textContent = text;
     container.appendChild(probe);
+
+    // Also measure with the mishna font (tag-mishna class)
+    const probeMishna = document.createElement('span');
+    probeMishna.style.visibility = 'hidden';
+    probeMishna.style.position = 'absolute';
+    probeMishna.style.whiteSpace = 'nowrap';
+    probeMishna.style.pointerEvents = 'none';
+    probeMishna.className = 'tag-mishna';
+    probeMishna.textContent = text;
+    container.appendChild(probeMishna);
+
     let perChar = 0;
     try {
       const rect = probe.getBoundingClientRect();
-      perChar = rect.width / probe.textContent.length;
+      const rectMishna = probeMishna.getBoundingClientRect();
+      // Use the widest character width to avoid overflow on any line
+      const w1 = rect.width / text.length;
+      const w2 = rectMishna.width / text.length;
+      perChar = Math.max(w1, w2);
     } finally {
       probe.remove();
+      probeMishna.remove();
     }
+    // Account for line padding: base 2.5em start + 4.5em end = 7em, plus
+    // mishna lines add 1.5em extra on each side (total 10em for mishna).
     const avail = container.clientWidth || 800;
     if (!perChar || perChar <= 0) return 60;
+    const fontSize = parseFloat(getComputedStyle(container).fontSize) || 16;
+    const basePadding = 7 * fontSize;
+    const mishnaExtraPadding = 3 * fontSize;
+    const effectiveAvail = avail - basePadding - mishnaExtraPadding;
     // 0.92 safety factor so justify can stretch without forcing a wrap.
-    return Math.max(20, Math.floor((avail * 0.92) / perChar));
+    return Math.max(20, Math.floor((effectiveAvail * 0.92) / perChar));
   }
 
   /**
@@ -246,7 +281,7 @@ export function createEditor(container, initialNodes, options = {}) {
     if (!virtualScroll) {
       container.innerHTML = '';
       virtualScroll = createVirtualScroll(container, {
-        lineHeight: LINE_HEIGHT,
+        lineHeight: getLineHeight(container),
         onScroll: onVirtualScroll,
       });
     }
@@ -595,7 +630,11 @@ export function createEditor(container, initialNodes, options = {}) {
     }
 
     if (hoverEnabled && tagMap.has(idx)) {
-      showTooltip(wordEl, tagMap.get(idx));
+      const allTags = tagMap.get(idx);
+      const visibleTags = showOnHoverTags ? allTags.filter(t => showOnHoverTags.has(t.tag)) : allTags;
+      if (visibleTags.length > 0) {
+        showTooltip(wordEl, visibleTags);
+      }
     }
   }
 
@@ -881,7 +920,7 @@ export function createEditor(container, initialNodes, options = {}) {
       }
     }
 
-    nodes = nodes.filter(n => n.type !== 'tag' || n.wordCount > 0);
+    nodes = nodes.filter(n => n.type !== 'tag' || n.wordCount > 0 || positionalTags.has(n.tag));
 
     let count = 0;
     const toRemove = [];
@@ -917,7 +956,7 @@ export function createEditor(container, initialNodes, options = {}) {
       }
     }
 
-    nodes = nodes.filter(n => n.type !== 'tag' || n.wordCount > 0);
+    nodes = nodes.filter(n => n.type !== 'tag' || n.wordCount > 0 || positionalTags.has(n.tag));
 
     const pos = findTextNodePosition(wordIndex);
     if (pos !== -1) {
@@ -1157,6 +1196,7 @@ export function createEditor(container, initialNodes, options = {}) {
     }
 
     pushUndo();
+
     remapCollapsedGroupsAfterInsert(nodePos);
     nodes.splice(nodePos, 0, { type: 'tag', tag, props, wordCount });
     if (collapsibleTags.has(tag) && isDefaultCollapsedTrue(props)) {
@@ -1164,8 +1204,15 @@ export function createEditor(container, initialNodes, options = {}) {
     }
     selStart = null;
     selEnd = null;
-    rerender();
+
+    // After adding a [mishna] tag, recompute all mishna+gemara boundaries
+    if (tag === 'mishna') {
+      recomputeMishnaGemara();
+    } else {
+      rerender();
+    }
   }
+
 
   function extractTagTailFromSelection(tagNodeIndex) {
     if (selStart === null || selEnd === null) return false;
@@ -1191,6 +1238,62 @@ export function createEditor(container, initialNodes, options = {}) {
     }
     selStart = null;
     selEnd = null;
+    rerender();
+    return true;
+  }
+
+  /**
+   * Find tags whose coverage ends before `wordIndex` that could be extended.
+   * Returns array of { tag, props, nodeIndex, tagEnd } sorted by proximity
+   * (closest ending tag first).
+   */
+  function findContinuableTags(wordIndex) {
+    const result = [];
+    let wordsSeen = 0;
+    const active = [];
+
+    for (let ni = 0; ni < nodes.length; ni++) {
+      const node = nodes[ni];
+      if (node.type === 'tag' && node.wordCount > 0) {
+        active.push({ ni, tag: node.tag, props: node.props, startWord: wordsSeen, remaining: node.wordCount });
+      } else if (node.type === 'text') {
+        for (const a of active) {
+          if (a.remaining > 0) a.remaining--;
+        }
+        wordsSeen++;
+        for (let i = active.length - 1; i >= 0; i--) {
+          if (active[i].remaining <= 0) {
+            const a = active[i];
+            const tagEnd = wordsSeen - 1;
+            if (tagEnd < wordIndex) {
+              result.push({ tag: a.tag, props: { ...a.props }, nodeIndex: a.ni, tagEnd });
+            }
+            active.splice(i, 1);
+          }
+        }
+      }
+    }
+    result.sort((a, b) => b.tagEnd - a.tagEnd);
+    return result.slice(0, 5);
+  }
+
+  /**
+   * Extend a tag's wordCount so it covers up to (and including) `toWordIndex`.
+   */
+  function continueTag(tagNodeIndex, toWordIndex) {
+    const node = nodes[tagNodeIndex];
+    if (!node || node.type !== 'tag') return false;
+
+    let wordIdx = 0;
+    for (let i = 0; i < tagNodeIndex; i++) {
+      if (nodes[i].type === 'text') wordIdx++;
+    }
+    const tagStart = wordIdx;
+    const newCount = toWordIndex - tagStart + 1;
+    if (newCount <= node.wordCount) return false;
+
+    pushUndo();
+    nodes[tagNodeIndex].wordCount = newCount;
     rerender();
     return true;
   }
@@ -1288,6 +1391,7 @@ export function createEditor(container, initialNodes, options = {}) {
 
     for (let i = targetPos - 1; i >= 0; i--) {
       if (nodes[i].type === 'tag') {
+        if (nonRemovableTags.has(nodes[i].tag)) return;
         pushUndo();
         nodes.splice(i, 1);
         selStart = null;
@@ -1380,6 +1484,67 @@ export function createEditor(container, initialNodes, options = {}) {
     return pages;
   }
 
+  // ─── Search ─────────────────────────────────────────────────
+
+  let lastSearchQuery = '';
+  let lastSearchResults = [];
+  let lastSearchIdx = -1;
+
+  function searchText(query, direction = 1) {
+    if (!query) return null;
+
+    if (query !== lastSearchQuery) {
+      lastSearchQuery = query;
+      lastSearchResults = [];
+      lastSearchIdx = -1;
+
+      const textWords = [];
+      let wordIdx = 0;
+      for (const node of nodes) {
+        if (node.type === 'text') {
+          textWords.push({ value: node.value, wordIdx });
+          wordIdx++;
+        }
+      }
+
+      const joined = textWords.map(w => w.value).join(' ');
+      let searchPos = 0;
+      while (true) {
+        const idx = joined.indexOf(query, searchPos);
+        if (idx === -1) break;
+
+        // Map character offset back to word index
+        let charCount = 0;
+        let startWord = 0;
+        let endWord = 0;
+        for (let i = 0; i < textWords.length; i++) {
+          const wordEnd = charCount + textWords[i].value.length;
+          if (charCount <= idx && idx < wordEnd + 1) startWord = textWords[i].wordIdx;
+          if (charCount <= idx + query.length - 1 && idx + query.length - 1 < wordEnd + 1) {
+            endWord = textWords[i].wordIdx;
+            break;
+          }
+          charCount = wordEnd + 1; // +1 for the space
+        }
+        lastSearchResults.push({ startWord, endWord });
+        searchPos = idx + 1;
+      }
+    }
+
+    if (lastSearchResults.length === 0) return null;
+
+    if (direction > 0) {
+      lastSearchIdx = (lastSearchIdx + 1) % lastSearchResults.length;
+    } else {
+      lastSearchIdx = (lastSearchIdx - 1 + lastSearchResults.length) % lastSearchResults.length;
+    }
+
+    const match = lastSearchResults[lastSearchIdx];
+    setSelection(match.startWord, match.endWord);
+    scrollToWord(match.startWord);
+    return { index: lastSearchIdx + 1, total: lastSearchResults.length };
+  }
+
   // ─── Public API ─────────────────────────────────────────────
 
   function getNodes() { return nodes; }
@@ -1406,6 +1571,123 @@ export function createEditor(container, initialNodes, options = {}) {
   }
 
   function getTagMap() { return tagMap; }
+
+  // ─── Recompute mishna+gemara boundaries from [mishna] tags ──
+
+  function recomputeMishnaGemara() {
+    pushUndo();
+
+    // 1. Collect all [mishna] tag positions (word index where each starts)
+    const mishnaPositions = [];
+    let wordIdx = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type === 'tag' && nodes[i].tag === 'mishna') {
+        mishnaPositions.push({ nodeIdx: i, wordStart: wordIdx, wordCount: nodes[i].wordCount });
+      } else if (nodes[i].type === 'text') {
+        wordIdx++;
+      }
+    }
+
+    if (mishnaPositions.length === 0) return;
+
+    const totalWords = wordIdx;
+
+    // 2. Remove all existing [mishna+gemara] and [gemara] tags
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      if (nodes[i].type === 'tag' && (nodes[i].tag === 'mishna+gemara' || nodes[i].tag === 'gemara')) {
+        nodes.splice(i, 1);
+      }
+    }
+
+    // 3. Recalculate mishna positions after removals
+    const mishnaPosAfter = [];
+    wordIdx = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].type === 'tag' && nodes[i].tag === 'mishna') {
+        mishnaPosAfter.push({ nodeIdx: i, wordStart: wordIdx, wordCount: nodes[i].wordCount });
+      } else if (nodes[i].type === 'text') {
+        wordIdx++;
+      }
+    }
+
+    // 4. For each mishna, compute the mishna+gemara span and gemara span,
+    //    then insert from last to first to keep indices stable
+    const insertions = [];
+    for (let m = 0; m < mishnaPosAfter.length; m++) {
+      const cur = mishnaPosAfter[m];
+      const nextMishnaStart = m + 1 < mishnaPosAfter.length
+        ? mishnaPosAfter[m + 1].wordStart
+        : totalWords;
+      const mgWordCount = nextMishnaStart - cur.wordStart;
+      const gemaraWordCount = mgWordCount - cur.wordCount;
+
+      insertions.push({
+        wordStart: cur.wordStart,
+        mgWordCount,
+        mishnaWordCount: cur.wordCount,
+        gemaraWordCount,
+      });
+    }
+
+    // Insert from last to first so node indices stay valid
+    for (let m = insertions.length - 1; m >= 0; m--) {
+      const ins = insertions[m];
+
+      // Find the [mishna] tag node directly and insert before it
+      let wc = 0;
+      let mgInsertPos = -1;
+      for (let i = 0; i < nodes.length; i++) {
+        if (nodes[i].type === 'tag' && nodes[i].tag === 'mishna' && wc === ins.wordStart) {
+          mgInsertPos = i;
+          break;
+        }
+        if (nodes[i].type === 'text') wc++;
+      }
+      if (mgInsertPos === -1) continue;
+
+      // Insert [mishna+gemara] before the [mishna] tag
+      nodes.splice(mgInsertPos, 0, {
+        type: 'tag',
+        tag: 'mishna+gemara',
+        props: { default_collapsed: 'true' },
+        wordCount: ins.mgWordCount,
+      });
+
+      // Insert [gemara] after the mishna's last word
+      if (ins.gemaraWordCount > 0) {
+        const gemaraWordStart = ins.wordStart + ins.mishnaWordCount;
+        let gwc = 0;
+        let gInsertPos = -1;
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].type === 'text') {
+            if (gwc === gemaraWordStart) {
+              gInsertPos = i;
+              break;
+            }
+            gwc++;
+          }
+        }
+        if (gInsertPos !== -1) {
+          // Walk back over any tags at the same word position
+          while (gInsertPos > 0 && nodes[gInsertPos - 1].type === 'tag' &&
+                 nodes[gInsertPos - 1].tag !== 'mishna') {
+            gInsertPos--;
+          }
+          nodes.splice(gInsertPos, 0, {
+            type: 'tag',
+            tag: 'gemara',
+            props: {},
+            wordCount: ins.gemaraWordCount,
+          });
+        }
+      }
+    }
+
+    // Reset collapsed state and reinitialize
+    collapsedGroups.clear();
+    initCollapsedGroupsFromProps();
+    rerender();
+  }
 
   function destroy() {
     removeListeners();
@@ -1452,7 +1734,10 @@ export function createEditor(container, initialNodes, options = {}) {
     deleteBackward,
     deleteSelection,
     removeTag,
+    nonRemovableTags,
     extractTagTailFromSelection,
+    findContinuableTags,
+    continueTag,
     pasteText,
     toggleHover,
     getTagMap,
@@ -1468,7 +1753,13 @@ export function createEditor(container, initialNodes, options = {}) {
     rerender,
     getScrollPosition,
     scrollToWord,
+    searchText,
+    recomputeMishnaGemara,
     getPages,
+    setLineHeight(px) {
+      container.style.setProperty('--line-height-px', String(px));
+      rerender();
+    },
     destroy,
   };
 }

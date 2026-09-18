@@ -1,12 +1,27 @@
 labels:
   - name: speaker
     collapsible: false
-    newline_before: true
-    args: []
+    newline_before: false
+    show_on_hover: false
+    args:
+      - name: type
+        type: text
+        required: false
+
+  - name: verse
+    collapsible: false
+    positional: true
+    newline_before: false
+    show_on_hover: false
+    args:
+      - name: ref
+        type: text
+        required: true
 
   - name: question
     collapsible: false
     newline_before: true
+    show_on_hover: false
     args:
       - name: id
         type: text
@@ -16,6 +31,7 @@ labels:
   - name: answer
     collapsible: false
     newline_before: true
+    show_on_hover: false
     args:
       - name: to
         type: text
@@ -23,10 +39,12 @@ labels:
 
   - name: refers-to
     collapsible: false
+    show_on_hover: false
     args: []
 
   - name: group
     collapsible: true
+    show_on_hover: false
     args:
       - name: label
         type: text
@@ -37,13 +55,45 @@ labels:
         default: true
 
   - name: mishna
-    collapsible: false
+    collapsible: true
     newline_before: true
-    args: []
+    show_on_hover: false
+    args:
+      - name: default_collapsed
+        type: boolean
+        required: false
+        default: false
+
+  - name: gemara
+    collapsible: true
+    newline_before: true
+    show_on_hover: false
+    args:
+      - name: default_collapsed
+        type: boolean
+        required: false
+        default: false
+
+  - name: mishna+gemara
+    collapsible: true
+    removable: false
+    user_addable: false
+    newline_before: true
+    show_on_hover: false
+    args:
+      - name: label
+        type: text
+        required: false
+      - name: default_collapsed
+        type: boolean
+        required: false
+        default: true
 
   - name: page
     collapsible: false
+    positional: true
     newline_before: false
+    show_on_hover: false
     args:
       - name: value
         type: text
