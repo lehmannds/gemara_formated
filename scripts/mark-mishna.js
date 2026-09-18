@@ -7,12 +7,20 @@
  *
  * If a perek has only a single mishna (the opening one), no tags are inserted.
  *
- * Usage: node scripts/mark-mishna.js [masechet-dir] [--skip=1,2,3]
+ * Safety: a perek whose [mishna+gemara] tags already each contain a nested
+ * [mishna]+[gemara] pair (i.e. it was already fully processed, by this
+ * pipeline or by hand) is left untouched by default, since re-running the
+ * מתני/גמ' auto-detection from scratch can re-derive different boundaries
+ * than a previous run or manual curation and would silently destroy that
+ * work. Pass --force to reprocess such perakim anyway.
+ *
+ * Usage: node scripts/mark-mishna.js [masechet-dir] [--skip=1,2,3] [--force]
  *   e.g. node scripts/mark-mishna.js texts/hulin --skip=1,2,3
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
+import { parse as parseMarkup } from '../js/parser.js';
 
 const MAX_GM_DIST = 200;
 
@@ -128,6 +136,26 @@ function insertMishnaMarkers(markup, insertions) {
   return result.join('');
 }
 
+// ─── Already-fully-tagged detection (idempotency guard) ───────
+
+function isFullyTagged(markup) {
+  const nodes = parseMarkup(markup);
+  let sawAny = false;
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.type !== 'tag' || n.tag !== 'mishna+gemara' || n.wordCount === 0) continue;
+    sawAny = true;
+    let hasMishna = false, hasGemara = false;
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[j].type === 'text') break;
+      if (nodes[j].type === 'tag' && nodes[j].tag === 'mishna') hasMishna = true;
+      if (nodes[j].type === 'tag' && nodes[j].tag === 'gemara') hasGemara = true;
+    }
+    if (!hasMishna || !hasGemara) return false;
+  }
+  return sawAny;
+}
+
 // ─── Main ────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -136,6 +164,7 @@ const skipArg = args.find(a => a.startsWith('--skip='));
 const skipSet = new Set(
   skipArg ? skipArg.replace('--skip=', '').split(',').map(Number) : []
 );
+const force = args.includes('--force');
 
 const perakimDir = join(masechetDir, 'perakim');
 const files = [];
@@ -153,6 +182,11 @@ for (const { perek, path } of files) {
   }
 
   const markup = readFileSync(path, 'utf-8');
+
+  if (!force && isFullyTagged(markup)) {
+    console.log(`  Perek ${perek}: already fully tagged (mishna+gemara with nested mishna/gemara) – skipped (use --force to reprocess)`);
+    continue;
+  }
 
   // Remove any existing mishna markers before re-inserting
   const cleanMarkup = markup

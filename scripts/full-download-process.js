@@ -77,12 +77,17 @@ runScript('download-masechet.js', downloadArgs);
 banner(2, `Concat perakim + insert page markers (${masechetDir})`);
 runScript('concat-perakim.js', [masechetDir]);
 
-// ─── Step 3: Mark mishna ─────────────────────────────────────
+// ─── Step 3: Mark mishna+gemara sections ──────────────────────
 
-banner(3, `Mark mishna sections (${masechetDir})`);
+banner(3, `Mark mishna+gemara sections (${masechetDir})`);
 const mishnaArgs = [masechetDir];
 if (skipMishna) mishnaArgs.push(`--skip=${skipMishna}`);
 runScript('mark-mishna.js', mishnaArgs);
+
+// ─── Step 4: Split mishna+gemara into [mishna]/[gemara] tags ─
+
+banner(4, `Split mishna/gemara sub-tags (${masechetDir})`);
+runScript('split-mishna-gemara.js', [masechetDir, '--dir']);
 
 console.log(`\n${'='.repeat(60)}`);
 console.log(`  All done! Output in ${masechetDir}/perakim/`);
