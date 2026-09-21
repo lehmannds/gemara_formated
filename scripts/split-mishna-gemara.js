@@ -9,8 +9,9 @@
  *     e.g. node scripts/split-mishna-gemara.js texts/hulin --dir
  */
 import { parse, serialize } from '../js/parser.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
+import { listPerakimFiles } from './lib/perakim-fs.js';
 
 function splitFile(content) {
   const nodes = parse(content);
@@ -20,46 +21,39 @@ function splitFile(content) {
     const node = nodes[i];
     if (node.type !== 'tag' || node.tag !== 'mishna+gemara' || node.wordCount === 0) continue;
 
-    const mgStart = i;
     const mgWordCount = node.wordCount;
 
-    // Check if [mishna]/[gemara] sub-tags already exist anywhere within this
-    // mishna+gemara section's word span (not just immediately adjacent —
-    // [gemara] normally sits after the mishna's words, not right at the start).
+    // Single pass over this section's word span: check whether [mishna]/
+    // [gemara] sub-tags already exist anywhere within it (not just
+    // immediately adjacent — [gemara] normally sits after the mishna's
+    // words, not right at the start), and find where "גמ" marks the start
+    // of the gemara.
     let hasMishna = false;
     let hasGemara = false;
-    {
-      let wc = 0;
-      for (let j = i + 1; j < nodes.length && wc < mgWordCount; j++) {
-        if (nodes[j].type === 'text') { wc++; continue; }
-        if (nodes[j].type === 'tag' && nodes[j].tag === 'mishna') hasMishna = true;
-        if (nodes[j].type === 'tag' && nodes[j].tag === 'gemara') hasGemara = true;
-      }
-    }
-
-    // Count words to find where "גמ" appears (marks start of gemara)
     let wordIdx = 0;
     let gemaraStartWord = -1;
-    let mishnaWordCount = 0;
-
+    let gemaraStartNodeIdx = -1;
     for (let j = i + 1; j < nodes.length && wordIdx < mgWordCount; j++) {
       if (nodes[j].type === 'text') {
         // "גמ" or "גמ'" as a standalone word marks gemara start
         if (gemaraStartWord === -1 && /^גמ['׳]?$/.test(nodes[j].value)) {
           gemaraStartWord = wordIdx;
-          mishnaWordCount = wordIdx;
+          gemaraStartNodeIdx = j;
         }
         wordIdx++;
+        continue;
       }
+      if (nodes[j].type === 'tag' && nodes[j].tag === 'mishna') hasMishna = true;
+      if (nodes[j].type === 'tag' && nodes[j].tag === 'gemara') hasGemara = true;
     }
 
     if (gemaraStartWord === -1) {
-      // No "גמ" marker found — try "מתני" then look for next non-mishna section
-      // Skip this section, can't auto-detect
+      // No "גמ" marker found — can't auto-detect the mishna/gemara split
       console.log(`    Skipping mishna+gemara at node ${i} (no גמ marker found, ${mgWordCount} words)`);
       continue;
     }
 
+    const mishnaWordCount = gemaraStartWord;
     const gemaraWordCount = mgWordCount - mishnaWordCount;
 
     if (!hasMishna && mishnaWordCount > 0) {
@@ -68,25 +62,16 @@ function splitFile(content) {
       nodes.splice(i + 1, 0, mishnaTag);
       insertions++;
       console.log(`    Inserted [mishna {${mishnaWordCount}}] after node ${i}`);
-      // Adjust i since we inserted
+      // Adjust for the insertion, which shifted everything after it (i+1)
       i++;
+      gemaraStartNodeIdx++;
     }
 
     if (!hasGemara && gemaraWordCount > 0) {
-      // Find the text node at gemaraStartWord and insert [gemara] before it
-      let wc = 0;
-      for (let j = mgStart + 1; j < nodes.length; j++) {
-        if (nodes[j].type === 'text') {
-          if (wc === gemaraStartWord) {
-            const gemaraTag = { type: 'tag', tag: 'gemara', props: {}, wordCount: gemaraWordCount };
-            nodes.splice(j, 0, gemaraTag);
-            insertions++;
-            console.log(`    Inserted [gemara {${gemaraWordCount}}] before word "${nodes[j + 1]?.value}" at position ${j}`);
-            break;
-          }
-          wc++;
-        }
-      }
+      const gemaraTag = { type: 'tag', tag: 'gemara', props: {}, wordCount: gemaraWordCount };
+      nodes.splice(gemaraStartNodeIdx, 0, gemaraTag);
+      insertions++;
+      console.log(`    Inserted [gemara {${gemaraWordCount}}] before word "${nodes[gemaraStartNodeIdx + 1]?.value}" at position ${gemaraStartNodeIdx}`);
     }
   }
 
@@ -109,12 +94,7 @@ if (!target) {
 
 if (dirMode) {
   const masechetDir = resolve(target);
-  const perakimDir = join(masechetDir, 'perakim');
-  const files = [];
-  for (let i = 1; i <= 50; i++) {
-    const f = join(perakimDir, `${i}.txt`);
-    if (existsSync(f)) files.push({ perek: i, path: f });
-  }
+  const files = listPerakimFiles(masechetDir);
 
   console.log(`Splitting mishna/gemara in ${files.length} perakim in ${masechetDir}`);
   let totalInsertions = 0;

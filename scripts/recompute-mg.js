@@ -8,8 +8,9 @@
  *     e.g. node scripts/recompute-mg.js texts/hulin --dir
  */
 import { parse, serialize } from '../js/parser.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
+import { listPerakimFiles } from './lib/perakim-fs.js';
 
 function recomputeFile(content, label) {
   const nodes = parse(content);
@@ -53,7 +54,10 @@ function recomputeFile(content, label) {
 
     console.log(`    Mishna ${m + 1}: wordStart=${cur.wordStart}, mishna=${cur.wordCount} words, gemara=${gemaraWordCount} words, total=${mgWordCount}`);
 
-    // Find the [mishna] tag node index directly and insert before it
+    // Find the [mishna] tag node index directly and insert before it.
+    // (Re-scanning rather than trusting cur.nodeIdx: an earlier iteration's
+    // [gemara] insertion can land at or before a later mishnaPositions
+    // entry's captured index in some layouts, which would silently shift it.)
     let insertPos = -1;
     let wc = 0;
     for (let i = 0; i < nodes.length; i++) {
@@ -115,12 +119,7 @@ if (!target) {
 
 if (dirMode) {
   const masechetDir = resolve(target);
-  const perakimDir = join(masechetDir, 'perakim');
-  const files = [];
-  for (let i = 1; i <= 50; i++) {
-    const f = join(perakimDir, `${i}.txt`);
-    if (existsSync(f)) files.push({ perek: i, path: f });
-  }
+  const files = listPerakimFiles(masechetDir);
 
   console.log(`Recomputing mishna+gemara/gemara in ${files.length} perakim in ${masechetDir}`);
   for (const { perek, path } of files) {

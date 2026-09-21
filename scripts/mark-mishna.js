@@ -14,18 +14,17 @@
  * than a previous run or manual curation and would silently destroy that
  * work. Pass --force to reprocess such perakim anyway.
  *
- * Usage: node scripts/mark-mishna.js [masechet-dir] [--skip=1,2,3] [--force]
+ * Usage: node scripts/mark-mishna.js [masechet-dir] [--skip=1,2,3] [--force] [--dry-run]
  *   e.g. node scripts/mark-mishna.js texts/hulin --skip=1,2,3
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, writeFileSync } from 'fs';
+import { resolve } from 'path';
 import { parse as parseMarkup } from '../js/parser.js';
+import { listPerakimFiles } from './lib/perakim-fs.js';
+import { TAG_RE, NOISE_TOKENS, findClosingBracket } from './lib/markup-text.js';
 
 const MAX_GM_DIST = 200;
-
-const TAG_RE = /\[[^\]]*\{\d+\}\]/g;
-const NOISE_TOKENS = new Set([')}}', "'", '"', '(', ')']);
 
 function extractWords(markup) {
   const cleaned = markup.replace(TAG_RE, ' ').replace(/>>/g, ' ').replace(/<</g, ' ');
@@ -59,15 +58,6 @@ function findValidatedMishnaStarts(words) {
 }
 
 // ─── Markup insertion ────────────────────────────────────────
-
-function findClosingBracket(s, start) {
-  let depth = 0;
-  for (let i = start; i < s.length; i++) {
-    if (s[i] === '[') depth++;
-    if (s[i] === ']') { depth--; if (depth === 0) return i; }
-  }
-  return -1;
-}
 
 function insertMishnaMarkers(markup, insertions) {
   if (insertions.length === 0) return markup;
@@ -145,9 +135,13 @@ function isFullyTagged(markup) {
     const n = nodes[i];
     if (n.type !== 'tag' || n.tag !== 'mishna+gemara' || n.wordCount === 0) continue;
     sawAny = true;
+    // Scan the whole word span this tag covers, not just tags immediately
+    // adjacent — [gemara] normally sits after the mishna's words, not right
+    // at the start.
     let hasMishna = false, hasGemara = false;
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[j].type === 'text') break;
+    let wc = 0;
+    for (let j = i + 1; j < nodes.length && wc < n.wordCount; j++) {
+      if (nodes[j].type === 'text') { wc++; continue; }
       if (nodes[j].type === 'tag' && nodes[j].tag === 'mishna') hasMishna = true;
       if (nodes[j].type === 'tag' && nodes[j].tag === 'gemara') hasGemara = true;
     }
@@ -165,13 +159,9 @@ const skipSet = new Set(
   skipArg ? skipArg.replace('--skip=', '').split(',').map(Number) : []
 );
 const force = args.includes('--force');
+const dryRun = args.includes('--dry-run');
 
-const perakimDir = join(masechetDir, 'perakim');
-const files = [];
-for (let i = 1; i <= 50; i++) {
-  const f = join(perakimDir, `${i}.txt`);
-  if (existsSync(f)) files.push({ perek: i, path: f });
-}
+const files = listPerakimFiles(masechetDir);
 
 console.log(`Processing ${files.length} perakim in ${masechetDir} (skipping: ${[...skipSet].join(',') || 'none'})`);
 
@@ -217,8 +207,8 @@ for (const { perek, path } of files) {
   }
 
   const updated = insertMishnaMarkers(cleanMarkup, insertions);
-  writeFileSync(path, updated, 'utf-8');
-  console.log(`  Perek ${perek}: inserted ${insertions.length} mishna markers (${starts.map((s, i) => insertions[i].wordCount + 'w').join(', ')})`);
+  if (!dryRun) writeFileSync(path, updated, 'utf-8');
+  console.log(`  Perek ${perek}: ${dryRun ? 'would insert' : 'inserted'} ${insertions.length} mishna markers (${starts.map((s, i) => insertions[i].wordCount + 'w').join(', ')})`);
 }
 
-console.log('Done.');
+console.log(dryRun ? 'Dry run complete.' : 'Done.');

@@ -8,6 +8,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, resolve } from 'path';
+import { TAG_RE, NOISE_TOKENS, findClosingBracket } from './lib/markup-text.js';
 
 // ─── YAML parser (matches server.js format) ─────────────────
 
@@ -64,19 +65,11 @@ function pageToHebrew(pageStr) {
 
 // ─── Word extraction ─────────────────────────────────────────
 
-const NOISE_TOKENS = new Set([')}}', "'", '"', '(', ')']);
-
-function extractWordsFromPageFile(text) {
-  const TAG_RE = /\[[^\]]*\{\d+\}\]/g;
+// Strips editor tags (those ending with {N}) and >>/<< indent markers, then
+// splits into words. Used for both page files and perek files — the two
+// share the same markup syntax.
+function extractWords(text) {
   const cleaned = text.replace(TAG_RE, ' ').replace(/>>/g, ' ').replace(/<</g, ' ');
-  return cleaned.split(/\s+/)
-    .filter(w => w.length > 0 && !NOISE_TOKENS.has(w));
-}
-
-function extractWordsFromPerek(markup) {
-  // Only strip actual editor tags (those ending with {N}), not literal brackets in text
-  const TAG_RE = /\[[^\]]*\{\d+\}\]/g;
-  const cleaned = markup.replace(TAG_RE, ' ').replace(/>>/g, ' ').replace(/<</g, ' ');
   return cleaned.split(/\s+/)
     .filter(w => w.length > 0 && !NOISE_TOKENS.has(w));
 }
@@ -179,15 +172,6 @@ function insertPageMarkers(markup, insertions) {
   return result.join('');
 }
 
-function findClosingBracket(s, start) {
-  let depth = 0;
-  for (let i = start; i < s.length; i++) {
-    if (s[i] === '[') depth++;
-    if (s[i] === ']') { depth--; if (depth === 0) return i; }
-  }
-  return -1;
-}
-
 // ─── Main ────────────────────────────────────────────────────
 
 const masechetDir = resolve(process.argv[2] || 'texts/hulin');
@@ -210,7 +194,7 @@ for (let pi = 0; pi < perakim.length; pi++) {
 
   // Remove any existing page markers before re-inserting
   const cleanMarkup = markup.replace(/\[page\s+[^\]]*\{0\}\]\s*/g, '');
-  const perekWords = extractWordsFromPerek(cleanMarkup);
+  const perekWords = extractWords(cleanMarkup);
 
   // Determine page range for this perek
   const startPage = perek.start_page;
@@ -226,7 +210,7 @@ for (let pi = 0; pi < perakim.length; pi++) {
     const pageFile = join(masechetDir, `${pg}.txt`);
     if (existsSync(pageFile)) {
       const text = readFileSync(pageFile, 'utf-8');
-      const words = extractWordsFromPageFile(text);
+      const words = extractWords(text);
       pages.push({ page: pg, words, hebrew: pageToHebrew(pg) });
     }
     pg = nextPage(pg);
